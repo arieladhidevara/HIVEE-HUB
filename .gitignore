@@ -8,3 +8,9 @@ data/
 *.log
 .DS_Store
 .vscode/
+hivee/
+.venv/
+venv/
+env/
+__pycache__/
+*.pyc
