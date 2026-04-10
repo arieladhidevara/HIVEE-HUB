@@ -1,49 +1,67 @@
-# Hivee Cloud expectations for this connector
+# Hivee Cloud expectations
 
-This connector is only useful if Hivee Cloud exposes a few stable endpoints.
+This document defines what Hivee Cloud is expected to provide to the connector.
 
-## Required
+The goal is clarity, not bureaucracy.
 
-### 1. Create pairing token
-Cloud-side feature for authenticated users.
+## Connector lifecycle
 
-Example response from cloud UI/API:
+At a minimum, Hivee Cloud should support:
 
-```json
-{
-  "pairingToken": "pair_live_abc123",
-  "expiresAt": 1740000000000,
-  "workspaceId": "ws_123"
-}
-```
+1. connector registration
+2. heartbeat ingestion
+3. command polling or command delivery
+4. command result submission
+5. connector status inspection
 
-### 2. Register connector
-`POST /api/connectors/register`
+## Minimum data Hivee Cloud should know about a connector
 
-### 3. Heartbeat endpoint
-`POST /api/connectors/:connectorId/heartbeat`
-
-### 4. Command polling endpoint
-`GET /api/connectors/:connectorId/commands?cursor=...`
-
-### 5. Command result ingestion
-`POST /api/connectors/:connectorId/commands/:commandId/result`
-
-## Strong recommendation
-
-Cloud should store:
-
-- connector owner user/workspace
-- connector display name
+A connector record should include fields like:
+- connector id
+- display name
+- environment or workspace id
 - last heartbeat time
-- connector version
-- current OpenClaw agent snapshot
-- last error state
+- local OpenClaw status summary
+- discovered models and agents summary
+- software version
+- tags or labels useful for operations
 
-## Good future additions
+## Minimum command contract
 
-- connector revoke / rotate secret
-- audit trail
-- command cancellation
-- outbound WS stream support
-- connector upgrade notices
+Hivee Cloud should be able to send these commands to the connector:
+- `connector.ping`
+- `openclaw.discover`
+- `openclaw.list_agents`
+- `openclaw.chat`
+- `openclaw.proxy_http`
+
+## Why `openclaw.proxy_http` matters
+
+This command is especially useful for debugging because it lets operators test endpoints like `/v1/models` without SSHing into the VPS every time.
+
+That is not product fluff. It is operationally valuable.
+
+## Result contract
+
+Command results should be structured enough to debug real failures.
+
+At minimum, results should preserve:
+- `ok`
+- command type
+- transport used
+- status code if available
+- error message if available
+- response payload if safe
+
+## What Hivee Cloud should not assume
+
+Hivee Cloud should not assume:
+- public OpenClaw exposure exists
+- WebSocket is always the healthiest transport
+- a public browser-success means the local connector path is healthy
+
+## Recommended UX principle
+
+If the connector can prove `/v1/models` returns JSON locally, Hivee Cloud should show that as a strong signal of health.
+
+If the connector receives HTML instead of JSON, Hivee Cloud should surface that clearly instead of hiding it behind a vague generic failure.
