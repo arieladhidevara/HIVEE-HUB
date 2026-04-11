@@ -18,7 +18,6 @@ The connector is responsible for:
 
 ```bash
 npm install
-cp .env.example .env
 npm run dev
 ```
 
@@ -28,11 +27,29 @@ Then open:
 http://127.0.0.1:43137
 ```
 
+Optional:
+
+```bash
+cp .env.example .env
+```
+
+You only need `.env` if you want to pre-seed defaults before opening the admin UI.
+
 ### Docker
 
 ```bash
 docker compose up --build -d
 ```
+
+Then open:
+
+```text
+http://127.0.0.1:43137
+```
+
+On a VPS, open `http://<your-server-ip>:43137`.
+
+OpenClaw connection details can be set later from the admin UI under the **OpenClaw** card.
 
 ## Important environment variables
 

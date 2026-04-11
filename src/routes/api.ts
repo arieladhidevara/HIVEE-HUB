@@ -6,6 +6,40 @@ export async function registerApiRoutes(app: FastifyInstance, manager: Connector
   app.get("/health", async () => ({ ok: true, service: "hivee-connector", version: "0.1.0", now: Date.now() }));
 
   app.get("/api/status", async () => manager.status());
+  app.get("/api/openclaw/config", async () => ({ ok: true, config: manager.getOpenClawConfig() }));
+
+  app.post("/api/openclaw/config", async (request, reply) => {
+    const payload = z
+      .object({
+        baseUrl: z.string().optional(),
+        discoveryCandidates: z.string().optional(),
+        token: z.string().optional(),
+        transport: z.enum(["auto", "ws", "http"]).optional(),
+        wsPath: z.string().optional(),
+        requestTimeoutMs: z.coerce.number().int().min(1000).max(120000).optional()
+      })
+      .parse(request.body ?? {});
+
+    try {
+      const config = manager.updateOpenClawConfig(payload);
+      const snapshot = await manager.discoverOpenClaw();
+      return { ok: snapshot.healthy, config, snapshot };
+    } catch (error) {
+      reply.code(400);
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  app.post("/api/openclaw/config/reset", async (_request, reply) => {
+    try {
+      const config = manager.resetOpenClawConfig();
+      const snapshot = await manager.discoverOpenClaw();
+      return { ok: snapshot.healthy, config, snapshot };
+    } catch (error) {
+      reply.code(400);
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
 
   app.post("/api/pairing/start", async (request, reply) => {
     const payload = z

@@ -4,8 +4,28 @@ services:
     build: .
     container_name: hivee-connector
     restart: unless-stopped
-    env_file:
-      - .env
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: ${PORT:-43137}
+      HOST: ${HOST:-0.0.0.0}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      DATA_DIR: ${DATA_DIR:-./data}
+      CONNECTOR_NAME: ${CONNECTOR_NAME:-Hivee Connector}
+      CONNECTOR_BIND_PUBLIC: ${CONNECTOR_BIND_PUBLIC:-false}
+      CLOUD_BASE_URL: ${CLOUD_BASE_URL:-}
+      CLOUD_WS_URL: ${CLOUD_WS_URL:-}
+      PAIRING_TOKEN: ${PAIRING_TOKEN:-}
+      CONNECTOR_HEARTBEAT_INTERVAL_SEC: ${CONNECTOR_HEARTBEAT_INTERVAL_SEC:-15}
+      CONNECTOR_COMMAND_POLL_INTERVAL_SEC: ${CONNECTOR_COMMAND_POLL_INTERVAL_SEC:-5}
+      CONNECTOR_DISCOVERY_INTERVAL_SEC: ${CONNECTOR_DISCOVERY_INTERVAL_SEC:-30}
+      OPENCLAW_BASE_URL: ${OPENCLAW_BASE_URL:-}
+      OPENCLAW_TOKEN: ${OPENCLAW_TOKEN:-}
+      OPENCLAW_TRANSPORT: ${OPENCLAW_TRANSPORT:-http}
+      OPENCLAW_WS_PATH: ${OPENCLAW_WS_PATH:-}
+      OPENCLAW_REQUEST_TIMEOUT_MS: ${OPENCLAW_REQUEST_TIMEOUT_MS:-20000}
+      OPENCLAW_DISCOVERY_CANDIDATES: ${OPENCLAW_DISCOVERY_CANDIDATES:-http://127.0.0.1:18789,http://127.0.0.1:43136,http://openclaw:18789,http://openclaw:43136,http://openclaw:18790,http://openclaw-izjk-openclaw-1:18790}
+      ENABLE_DOCKER_DISCOVERY: ${ENABLE_DOCKER_DISCOVERY:-false}
+      DOCKER_SOCKET_PATH: ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}
     ports:
       - "43137:43137"
     volumes:

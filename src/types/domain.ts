@@ -25,6 +25,15 @@ export interface OpenClawSnapshot {
   updatedAt: number | null;
 }
 
+export interface OpenClawConfig {
+  baseUrl: string;
+  token: string;
+  transport: "auto" | "ws" | "http";
+  wsPath: string;
+  requestTimeoutMs: number;
+  discoveryCandidates: string;
+}
+
 export interface PairingState {
   connectorId: string | null;
   connectorSecret: string | null;
@@ -42,6 +51,7 @@ export interface ConnectorStatusPayload {
   version: string;
   host: HostSnapshot;
   pairing: PairingState;
+  openclawConfig: OpenClawConfig;
   openclaw: OpenClawSnapshot;
   recentEvents: ConnectorEvent[];
 }

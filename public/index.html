@@ -35,8 +35,26 @@
 
         <article class="card">
           <h2>OpenClaw</h2>
-          <p class="muted">Connector uses local discovery and never requires the user to expose OpenClaw publicly by default.</p>
+          <p class="muted">Set OpenClaw connection details here. You can leave it empty at first, then fill it in later.</p>
+          <label>Base URL</label>
+          <input id="openclawBaseUrl" placeholder="http://openclaw:18790" />
+          <label>Discovery candidates (comma-separated URLs)</label>
+          <textarea id="openclawDiscoveryCandidates" placeholder="http://openclaw:18790,http://openclaw-izjk-openclaw-1:18790"></textarea>
+          <label>Gateway token (optional)</label>
+          <input id="openclawToken" type="password" placeholder="Bearer token without the Bearer prefix" />
+          <label>Transport</label>
+          <select id="openclawTransport">
+            <option value="auto">auto</option>
+            <option value="http">http</option>
+            <option value="ws">ws</option>
+          </select>
+          <label>WS path (optional)</label>
+          <input id="openclawWsPath" placeholder="/ws" />
+          <label>Request timeout (ms)</label>
+          <input id="openclawTimeout" type="number" min="1000" step="1000" placeholder="20000" />
           <div class="row gap">
+            <button id="saveOpenclawConfigButton">Save OpenClaw config</button>
+            <button id="resetOpenclawConfigButton" class="secondary">Reset to defaults</button>
             <button id="discoverButton">Rediscover OpenClaw</button>
             <button id="refreshButton" class="secondary">Refresh status</button>
           </div>

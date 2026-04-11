@@ -4,10 +4,42 @@ const openclawResult = document.getElementById("openclawResult");
 const commandResult = document.getElementById("commandResult");
 const statusBadge = document.getElementById("status-badge");
 
+function setInputValue(id, value) {
+  const element = document.getElementById(id);
+  if (!element) return;
+  if (document.activeElement === element) return;
+  const next = value ?? "";
+  if (element.value !== next) element.value = next;
+}
+
+function applyOpenClawConfig(config) {
+  if (!config) return;
+  setInputValue("openclawBaseUrl", config.baseUrl || "");
+  setInputValue("openclawDiscoveryCandidates", config.discoveryCandidates || "");
+  setInputValue("openclawToken", config.token || "");
+  setInputValue("openclawTransport", config.transport || "auto");
+  setInputValue("openclawWsPath", config.wsPath || "");
+  setInputValue("openclawTimeout", String(config.requestTimeoutMs || 20000));
+}
+
+function readOpenClawConfigForm() {
+  const timeoutRaw = document.getElementById("openclawTimeout").value;
+  const timeoutNum = Number(timeoutRaw);
+  return {
+    baseUrl: document.getElementById("openclawBaseUrl").value.trim(),
+    discoveryCandidates: document.getElementById("openclawDiscoveryCandidates").value.trim(),
+    token: document.getElementById("openclawToken").value.trim(),
+    transport: document.getElementById("openclawTransport").value,
+    wsPath: document.getElementById("openclawWsPath").value.trim(),
+    requestTimeoutMs: Number.isFinite(timeoutNum) && timeoutNum > 0 ? Math.round(timeoutNum) : 20000
+  };
+}
+
 async function getStatus() {
   const res = await fetch("/api/status");
   const data = await res.json();
   statusView.textContent = JSON.stringify(data, null, 2);
+  applyOpenClawConfig(data?.openclawConfig);
 
   if (data?.pairing?.status === "paired") {
     statusBadge.textContent = "paired";
@@ -36,6 +68,23 @@ async function postJson(url, body) {
 }
 
 document.getElementById("refreshButton").addEventListener("click", getStatus);
+
+document.getElementById("saveOpenclawConfigButton").addEventListener("click", async () => {
+  openclawResult.textContent = "Saving OpenClaw config...";
+  const payload = readOpenClawConfigForm();
+  const data = await postJson("/api/openclaw/config", payload);
+  openclawResult.textContent = JSON.stringify(data, null, 2);
+  applyOpenClawConfig(data?.config);
+  await getStatus();
+});
+
+document.getElementById("resetOpenclawConfigButton").addEventListener("click", async () => {
+  openclawResult.textContent = "Resetting OpenClaw config...";
+  const data = await postJson("/api/openclaw/config/reset", {});
+  openclawResult.textContent = JSON.stringify(data, null, 2);
+  applyOpenClawConfig(data?.config);
+  await getStatus();
+});
 
 document.getElementById("discoverButton").addEventListener("click", async () => {
   openclawResult.textContent = "Discovering...";

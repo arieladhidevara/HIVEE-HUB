@@ -1,6 +1,6 @@
 import type { DB } from "./db.js";
 import { nowTs } from "../utils/time.js";
-import type { ConnectorEvent, OpenClawSnapshot, PairingState } from "../types/domain.js";
+import type { ConnectorEvent, OpenClawConfig, OpenClawSnapshot, PairingState } from "../types/domain.js";
 
 function setJson(db: DB, key: string, value: unknown): void {
   db.prepare(
@@ -39,6 +39,14 @@ export function loadPairingState(db: DB): PairingState {
 
 export function saveOpenClawSnapshot(db: DB, snapshot: OpenClawSnapshot): void {
   setJson(db, "openclaw_snapshot", snapshot);
+}
+
+export function saveOpenClawConfig(db: DB, config: OpenClawConfig): void {
+  setJson(db, "openclaw_config", config);
+}
+
+export function loadOpenClawConfig(db: DB, fallback: OpenClawConfig): OpenClawConfig {
+  return getJson<OpenClawConfig>(db, "openclaw_config", fallback);
 }
 
 export function loadOpenClawSnapshot(db: DB): OpenClawSnapshot {

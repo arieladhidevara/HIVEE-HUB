@@ -1,6 +1,6 @@
 import { WebSocket } from "ws";
 import type { Env } from "../config/env.js";
-import type { AgentInfo, OpenClawSnapshot } from "../types/domain.js";
+import type { AgentInfo, OpenClawConfig, OpenClawSnapshot } from "../types/domain.js";
 import { buildWsCandidates, inferAgentsFromModels } from "../utils/openclaw.js";
 import { ensureTrailingSlashless, errorToText } from "../utils/text.js";
 import { nowTs } from "../utils/time.js";
@@ -21,22 +21,41 @@ export interface OpenClawChatOutput {
 }
 
 export class OpenClawClient {
-  constructor(private readonly env: Env) { }
+  private config: OpenClawConfig;
+
+  constructor(env: Env) {
+    this.config = this.normalizeConfig({
+      baseUrl: env.OPENCLAW_BASE_URL || "",
+      token: env.OPENCLAW_TOKEN || "",
+      transport: env.OPENCLAW_TRANSPORT,
+      wsPath: env.OPENCLAW_WS_PATH || "",
+      requestTimeoutMs: env.OPENCLAW_REQUEST_TIMEOUT_MS,
+      discoveryCandidates: env.OPENCLAW_DISCOVERY_CANDIDATES || ""
+    });
+  }
+
+  getConfig(): OpenClawConfig {
+    return { ...this.config };
+  }
+
+  setConfig(input: OpenClawConfig): void {
+    this.config = this.normalizeConfig(input);
+  }
 
   getCandidates(): string[] {
-    const seeded = (this.env.OPENCLAW_DISCOVERY_CANDIDATES || "")
+    const seeded = (this.config.discoveryCandidates || "")
       .split(",")
       .map((x) => x.trim())
       .filter(Boolean);
-    if (this.env.OPENCLAW_BASE_URL) {
-      return [ensureTrailingSlashless(this.env.OPENCLAW_BASE_URL), ...seeded.filter((x) => x !== this.env.OPENCLAW_BASE_URL)];
+    if (this.config.baseUrl) {
+      return [this.config.baseUrl, ...seeded.filter((x) => x !== this.config.baseUrl)];
     }
     return seeded.map(ensureTrailingSlashless);
   }
 
   async discover(): Promise<OpenClawSnapshot> {
-    const token = (this.env.OPENCLAW_TOKEN || "").trim();
-    const transport = this.env.OPENCLAW_TRANSPORT;
+    const token = this.config.token;
+    const transport = this.config.transport;
     for (const baseUrl of this.getCandidates()) {
       const modelsRes = await this.fetchModels(baseUrl, token);
       if (!modelsRes.ok) {
@@ -52,21 +71,21 @@ export class OpenClawClient {
         agents,
         models,
         lastError: null,
-        wsCandidates: buildWsCandidates(baseUrl, this.env.OPENCLAW_WS_PATH || undefined),
+        wsCandidates: buildWsCandidates(baseUrl, this.config.wsPath || undefined),
         updatedAt: nowTs()
       };
     }
 
     return {
-      baseUrl: this.env.OPENCLAW_BASE_URL || null,
+      baseUrl: this.config.baseUrl || null,
       tokenPresent: Boolean(token),
       transport,
       healthy: false,
       agents: [],
       models: [],
       lastError: "Could not discover a healthy local OpenClaw endpoint",
-      wsCandidates: this.env.OPENCLAW_BASE_URL
-        ? buildWsCandidates(this.env.OPENCLAW_BASE_URL, this.env.OPENCLAW_WS_PATH || undefined)
+      wsCandidates: this.config.baseUrl
+        ? buildWsCandidates(this.config.baseUrl, this.config.wsPath || undefined)
         : [],
       updatedAt: nowTs()
     };
@@ -79,7 +98,7 @@ export class OpenClawClient {
         const res = await fetch(`${ensureTrailingSlashless(baseUrl)}${path}`, {
           method: "GET",
           headers: this.authHeaders(token),
-          signal: AbortSignal.timeout(this.env.OPENCLAW_REQUEST_TIMEOUT_MS)
+          signal: AbortSignal.timeout(this.config.requestTimeoutMs)
         });
         const contentType = res.headers.get("content-type") || "";
         if (!res.ok) continue;
@@ -107,7 +126,7 @@ export class OpenClawClient {
         const res = await fetch(`${ensureTrailingSlashless(baseUrl)}${path}`, {
           method: "GET",
           headers: this.authHeaders(token),
-          signal: AbortSignal.timeout(this.env.OPENCLAW_REQUEST_TIMEOUT_MS)
+          signal: AbortSignal.timeout(this.config.requestTimeoutMs)
         });
         const contentType = res.headers.get("content-type") || "";
         if (!res.ok || !contentType.includes("application/json")) continue;
@@ -159,7 +178,7 @@ export class OpenClawClient {
   async chatHttp(input: OpenClawChatInput, snapshot: OpenClawSnapshot): Promise<OpenClawChatOutput> {
     const baseUrl = snapshot.baseUrl;
     if (!baseUrl) return { ok: false, transport: "http", error: "Missing base URL" };
-    const token = (this.env.OPENCLAW_TOKEN || "").trim();
+    const token = this.config.token;
     const endpoints = ["/v1/chat/completions", "/chat/completions", "/api/chat/completions", "/v1/responses", "/responses", "/api/responses"];
 
     for (const path of endpoints) {
@@ -181,7 +200,7 @@ export class OpenClawClient {
             "content-type": "application/json"
           },
           body: JSON.stringify(body),
-          signal: AbortSignal.timeout(input.timeoutMs || this.env.OPENCLAW_REQUEST_TIMEOUT_MS)
+          signal: AbortSignal.timeout(input.timeoutMs || this.config.requestTimeoutMs)
         });
         const ct = res.headers.get("content-type") || "";
         if (!res.ok || !ct.includes("application/json")) continue;
@@ -199,8 +218,8 @@ export class OpenClawClient {
   async chatWs(input: OpenClawChatInput, snapshot: OpenClawSnapshot): Promise<OpenClawChatOutput> {
     const baseUrl = snapshot.baseUrl;
     if (!baseUrl) return { ok: false, transport: "ws", error: "Missing base URL" };
-    const token = (this.env.OPENCLAW_TOKEN || "").trim();
-    const candidates = snapshot.wsCandidates.length ? snapshot.wsCandidates : buildWsCandidates(baseUrl, this.env.OPENCLAW_WS_PATH || undefined);
+    const token = this.config.token;
+    const candidates = snapshot.wsCandidates.length ? snapshot.wsCandidates : buildWsCandidates(baseUrl, this.config.wsPath || undefined);
 
     let lastError = "unknown";
     for (const candidate of candidates) {
@@ -227,11 +246,11 @@ export class OpenClawClient {
     const res = await fetch(`${ensureTrailingSlashless(snapshot.baseUrl)}${safePath}`, {
       method,
       headers: {
-        ...this.authHeaders((this.env.OPENCLAW_TOKEN || "").trim()),
+        ...this.authHeaders(this.config.token),
         "content-type": "application/json"
       },
       body: body ? JSON.stringify(body) : undefined,
-      signal: AbortSignal.timeout(this.env.OPENCLAW_REQUEST_TIMEOUT_MS)
+      signal: AbortSignal.timeout(this.config.requestTimeoutMs)
     });
     const ct = res.headers.get("content-type") || "";
     if (ct.includes("application/json")) return res.json();
@@ -246,7 +265,7 @@ export class OpenClawClient {
       let sawMeaningfulText = false;
       const socket = new WebSocket(candidate, {
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-        handshakeTimeout: input.timeoutMs || this.env.OPENCLAW_REQUEST_TIMEOUT_MS
+        handshakeTimeout: input.timeoutMs || this.config.requestTimeoutMs
       });
 
       const finish = (payload: OpenClawChatOutput) => {
@@ -260,7 +279,7 @@ export class OpenClawClient {
 
       const timer = setTimeout(() => {
         finish({ ok: false, transport: "ws", error: `Timeout while waiting for WS response from ${candidate}` });
-      }, input.timeoutMs || this.env.OPENCLAW_REQUEST_TIMEOUT_MS);
+      }, input.timeoutMs || this.config.requestTimeoutMs);
 
       socket.on("open", () => {
         const messages = [
@@ -345,6 +364,18 @@ export class OpenClawClient {
 
   private authHeaders(token: string): HeadersInit {
     return token ? { Authorization: `Bearer ${token}`, Accept: "application/json" } : { Accept: "application/json" };
+  }
+
+  private normalizeConfig(input: OpenClawConfig): OpenClawConfig {
+    const timeout = Number.isFinite(input.requestTimeoutMs) ? Math.round(input.requestTimeoutMs) : 20_000;
+    return {
+      baseUrl: ensureTrailingSlashless((input.baseUrl || "").trim()),
+      token: (input.token || "").trim(),
+      transport: input.transport,
+      wsPath: (input.wsPath || "").trim(),
+      requestTimeoutMs: timeout > 0 ? timeout : 20_000,
+      discoveryCandidates: (input.discoveryCandidates || "").trim()
+    };
   }
 
   private extractText(payload: any): string {
