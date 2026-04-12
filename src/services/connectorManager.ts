@@ -14,7 +14,11 @@ interface DockerDiscoverOptions {
   autoApply?: boolean;
 }
 
+const DOCKER_DISCOVERY_COOLDOWN_MS = 5 * 60 * 1000;
+
 export class ConnectorManager {
+  private lastDockerDiscovery: number = 0;
+
   constructor(
     private readonly db: DB,
     private readonly env: Env,
@@ -127,6 +131,11 @@ export class ConnectorManager {
     const initial = await this.discoverOpenClaw();
     if (initial.healthy) return initial;
 
+    const now = Date.now();
+    if (now - this.lastDockerDiscovery < DOCKER_DISCOVERY_COOLDOWN_MS) {
+      return initial;
+    }
+    this.lastDockerDiscovery = now;
     await this.dockerDiscoverOpenClaw({ autoApply: true });
     return loadOpenClawSnapshot(this.db);
   }
@@ -163,16 +172,12 @@ export class ConnectorManager {
 
     const autoApply = options.autoApply !== false;
     if (autoApply && scan.recommendedBaseUrl) {
-      const nextDiscoveryCandidates = mergeDiscoveryCandidates(
-        scan.recommendedDiscoveryCandidates,
-        currentConfig.discoveryCandidates
-      );
       const nextToken = overrideToken !== undefined ? overrideToken : currentConfig.token;
 
       this.updateOpenClawConfig({
         baseUrl: scan.recommendedBaseUrl,
         token: nextToken,
-        discoveryCandidates: nextDiscoveryCandidates
+        discoveryCandidates: ""
       });
 
       let snapshot = await this.discoverOpenClaw();
