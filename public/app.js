@@ -246,7 +246,7 @@ async function connectOpenClaw() {
 
   const payload = {
     baseUrl,
-    discoveryCandidates: buildDiscoveryCandidates().join(","),
+    discoveryCandidates: "",
     token: openclawTokenInput.value.trim(),
     transport: "http",
     wsPath: "",
