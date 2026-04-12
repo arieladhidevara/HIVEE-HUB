@@ -23,7 +23,7 @@ services:
       OPENCLAW_TRANSPORT: ${OPENCLAW_TRANSPORT:-http}
       OPENCLAW_WS_PATH: ${OPENCLAW_WS_PATH:-}
       OPENCLAW_REQUEST_TIMEOUT_MS: ${OPENCLAW_REQUEST_TIMEOUT_MS:-20000}
-      OPENCLAW_DISCOVERY_CANDIDATES: ${OPENCLAW_DISCOVERY_CANDIDATES:-http://127.0.0.1:18789,http://127.0.0.1:43136,http://openclaw:18789,http://openclaw:43136,http://openclaw:18790,http://openclaw-izjk-openclaw-1:18790}
+      OPENCLAW_DISCOVERY_CANDIDATES: ${OPENCLAW_DISCOVERY_CANDIDATES:-http://127.0.0.1:18789,http://127.0.0.1:43136,http://openclaw:18789,http://openclaw:43136,http://openclaw:18790}
       ENABLE_DOCKER_DISCOVERY: ${ENABLE_DOCKER_DISCOVERY:-true}
       DOCKER_SOCKET_PATH: ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}
     ports:
@@ -31,3 +31,10 @@ services:
     volumes:
       - ./data:/app/data
       - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - default
+      - traefik-proxy
+
+networks:
+  traefik-proxy:
+    external: true
