@@ -1,9 +1,10 @@
 import type { DB } from "../store/db.js";
 import { appendEvent, loadCursor, loadOpenClawConfig, loadOpenClawSnapshot, loadPairingState, recentEvents, saveCursor, saveOpenClawConfig, saveOpenClawSnapshot, savePairingState, upsertCommandHistory } from "../store/repository.js";
-import type { CloudCommand, CommandResult, ConnectorStatusPayload, OpenClawConfig, OpenClawSnapshot, PairingState } from "../types/domain.js";
+import type { CloudCommand, CommandResult, ConnectorStatusPayload, OpenClawConfig, OpenClawDockerDiscovery, OpenClawSnapshot, PairingState } from "../types/domain.js";
 import type { Env } from "../config/env.js";
 import { CloudApi } from "./cloudApi.js";
 import { OpenClawClient } from "./openclawClient.js";
+import { tryDockerDiscovery } from "./dockerDiscovery.js";
 import { ensureTrailingSlashless, errorToText, redactToken } from "../utils/text.js";
 import os from "node:os";
 
@@ -106,6 +107,28 @@ export class ConnectorManager {
       }
     );
     return snapshot;
+  }
+
+  async dockerDiscoverOpenClaw(): Promise<OpenClawDockerDiscovery> {
+    const scan = await tryDockerDiscovery(this.env, this.openclaw.getConfig());
+
+    appendEvent(
+      this.db,
+      scan.healthyCandidates.length > 0 ? "info" : "warn",
+      "openclaw.docker_discover",
+      scan.healthyCandidates.length > 0
+        ? `Docker discovery found ${scan.healthyCandidates.length} healthy candidate(s)`
+        : "Docker discovery found no healthy candidates",
+      {
+        enabled: scan.enabled,
+        socketPath: scan.socketPath,
+        recommendedBaseUrl: scan.recommendedBaseUrl,
+        healthyCandidates: scan.healthyCandidates.map((item) => item.baseUrl),
+        notes: scan.notes
+      }
+    );
+
+    return scan;
   }
 
   async pair(cloudBaseUrl: string, pairingToken: string): Promise<PairingState> {

@@ -30,5 +30,5 @@ services:
       - "43137:43137"
     volumes:
       - ./data:/app/data
-      # Optional admin-only mode for docker discovery. Keep disabled by default.
+      # Optional: mount docker.sock so UI can scan Docker candidates.
       # - /var/run/docker.sock:/var/run/docker.sock

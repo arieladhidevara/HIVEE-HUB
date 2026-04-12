@@ -65,6 +65,16 @@ export async function registerApiRoutes(app: FastifyInstance, manager: Connector
     return { ok: snapshot.healthy, snapshot };
   });
 
+  app.post("/api/openclaw/discover/docker", async (_request, reply) => {
+    try {
+      const scan = await manager.dockerDiscoverOpenClaw();
+      return { ok: scan.healthyCandidates.length > 0, scan };
+    } catch (error) {
+      reply.code(400);
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
   app.post("/api/commands/execute", async (request, reply) => {
     const payload = z
       .object({

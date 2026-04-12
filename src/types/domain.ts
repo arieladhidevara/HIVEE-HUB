@@ -34,6 +34,33 @@ export interface OpenClawConfig {
   discoveryCandidates: string;
 }
 
+export interface OpenClawDockerCandidate {
+  baseUrl: string;
+  hostname: string;
+  port: number;
+  containerName: string;
+  image: string;
+  network: string | null;
+  ok: boolean;
+  models: string[];
+  endpoint: string;
+  statusCode: number | null;
+  contentType: string | null;
+  error: string | null;
+  score: number;
+}
+
+export interface OpenClawDockerDiscovery {
+  enabled: boolean;
+  testedAt: number;
+  socketPath: string;
+  notes: string[];
+  healthyCandidates: OpenClawDockerCandidate[];
+  probes: OpenClawDockerCandidate[];
+  recommendedBaseUrl: string | null;
+  recommendedDiscoveryCandidates: string[];
+}
+
 export interface PairingState {
   connectorId: string | null;
   connectorSecret: string | null;

@@ -140,8 +140,19 @@ These are the most important values to understand before debugging local OpenCla
 - `OPENCLAW_TOKEN`
 - `OPENCLAW_TRANSPORT`
 - `OPENCLAW_REQUEST_TIMEOUT_MS`
+- `ENABLE_DOCKER_DISCOVERY`
+- `DOCKER_SOCKET_PATH`
 
 For many deployments, `OPENCLAW_TRANSPORT=http` is the most stable starting point.
+
+## Docker-assisted discovery
+
+When `ENABLE_DOCKER_DISCOVERY=true` and docker socket is mounted into the connector container, the admin UI can:
+
+- scan running Docker containers for likely OpenClaw targets
+- build candidate base URLs from detected container hostnames and ports
+- probe model endpoints and keep only healthy JSON candidates
+- let you choose the final base URL from a dropdown before saving config
 
 ## Common commands
 

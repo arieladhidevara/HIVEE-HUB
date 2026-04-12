@@ -5,6 +5,7 @@ import { OpenClawClient } from "./services/openclawClient.js";
 import { ConnectorManager } from "./services/connectorManager.js";
 import { buildServer } from "./server.js";
 import { RuntimeLoops } from "./services/runtime.js";
+import os from "node:os";
 
 const env = loadEnv();
 const db = openDb(env);
@@ -29,7 +30,22 @@ process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
 
 await app.listen({ host: env.HOST, port: env.PORT });
-console.log(`Hivee Connector UI: http://127.0.0.1:${env.PORT}`);
-if (env.HOST === "0.0.0.0" || env.HOST === "::") {
-  console.log(`If this is a VPS, open: http://<server-ip>:${env.PORT}`);
+
+const urls = new Set<string>([`http://127.0.0.1:${env.PORT}`]);
+if (env.HOST && env.HOST !== "0.0.0.0" && env.HOST !== "::") {
+  urls.add(`http://${env.HOST}:${env.PORT}`);
+} else {
+  const nets = os.networkInterfaces();
+  for (const entries of Object.values(nets)) {
+    for (const entry of entries || []) {
+      if (entry.family === "IPv4" && !entry.internal) {
+        urls.add(`http://${entry.address}:${env.PORT}`);
+      }
+    }
+  }
+}
+
+console.log("Hivee Connector successfully running.");
+for (const url of urls) {
+  console.log(`Open this link -> ${url}`);
 }

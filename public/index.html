@@ -3,87 +3,59 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Hivee Connector</title>
+    <title>Hivee-Hub for Docker</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <main class="layout">
-      <section class="hero">
-        <div>
-          <p class="eyebrow">Hivee Connector</p>
-          <h1>Bridge Hivee Cloud to local OpenClaw</h1>
-          <p class="subtext">
-            This local admin screen is only for pairing, diagnostics, and discovery. End users should use Hivee Cloud.
-          </p>
+    <main class="app-shell">
+      <header class="topbar panel">
+        <div class="brand">
+          <img src="/logo.png" alt="Hivee logo" class="brand-logo" />
+          <h1>Hivee-Hub for Docker</h1>
         </div>
-        <div id="status-badge" class="badge badge-warn">loading...</div>
-      </section>
+        <button id="refreshButton" class="ghost">Refresh</button>
+      </header>
 
-      <section class="grid two">
-        <article class="card">
-          <h2>Pair with Hivee Cloud</h2>
-          <label>Hivee Cloud URL</label>
-          <input id="cloudBaseUrl" placeholder="https://cloud.hivee.app" />
-          <label>Pairing token</label>
-          <input id="pairingToken" placeholder="pair_live_xxx" />
-          <div class="row gap">
-            <button id="pairButton">Pair connector</button>
-            <button id="clearPairingButton" class="secondary">Clear pairing</button>
+      <section class="control-grid">
+        <article class="panel hivee-panel">
+          <label for="pairingToken">Hivee Token</label>
+          <div class="field-row">
+            <input id="pairingToken" placeholder="pair_live_xxx" autocomplete="off" />
+            <button id="pairButton">Connect</button>
           </div>
-          <pre id="pairingResult" class="output"></pre>
+          <div class="status-row">
+            <span id="hiveeStatusDot" class="status-dot"></span>
+            <span id="hiveeStatusText">Disconnected</span>
+          </div>
         </article>
 
-        <article class="card">
-          <h2>OpenClaw</h2>
-          <p class="muted">Set OpenClaw connection details here. You can leave it empty at first, then fill it in later.</p>
-          <label>Base URL</label>
-          <input id="openclawBaseUrl" placeholder="http://openclaw:18790" />
-          <label>Discovery candidates (comma-separated URLs)</label>
-          <textarea id="openclawDiscoveryCandidates" placeholder="http://openclaw:18790,http://openclaw-izjk-openclaw-1:18790"></textarea>
-          <label>Gateway token (optional)</label>
-          <input id="openclawToken" type="password" placeholder="Bearer token without the Bearer prefix" />
-          <label>Transport</label>
-          <select id="openclawTransport">
-            <option value="auto">auto</option>
-            <option value="http">http</option>
-            <option value="ws">ws</option>
-          </select>
-          <label>WS path (optional)</label>
-          <input id="openclawWsPath" placeholder="/ws" />
-          <label>Request timeout (ms)</label>
-          <input id="openclawTimeout" type="number" min="1000" step="1000" placeholder="20000" />
-          <div class="row gap">
-            <button id="saveOpenclawConfigButton">Save OpenClaw config</button>
-            <button id="resetOpenclawConfigButton" class="secondary">Reset to defaults</button>
-            <button id="discoverButton">Rediscover OpenClaw</button>
-            <button id="refreshButton" class="secondary">Refresh status</button>
+        <article class="panel openclaw-panel">
+          <div class="candidate-header">
+            <span>OpenClaw Candidates</span>
+            <button id="dockerScanButton" class="ghost">Discover</button>
           </div>
-          <pre id="openclawResult" class="output"></pre>
+          <div id="candidateButtons" class="candidate-buttons"></div>
+
+          <label for="openclawToken">OpenClaw Token</label>
+          <div class="field-row">
+            <input id="openclawToken" type="password" placeholder="Bearer token" autocomplete="off" />
+            <button id="saveOpenclawConfigButton">Connect</button>
+          </div>
+          <div class="status-row right">
+            <span id="openclawStatusDot" class="status-dot"></span>
+            <span id="openclawStatusText">Disconnected</span>
+          </div>
         </article>
       </section>
 
-      <section class="grid two">
-        <article class="card">
-          <h2>Status snapshot</h2>
-          <pre id="statusView" class="output tall"></pre>
+      <section class="logs-grid">
+        <article class="panel log-panel">
+          <div class="log-head">Hivee Log</div>
+          <pre id="pairingResult" class="log-box"></pre>
         </article>
-
-        <article class="card">
-          <h2>Manual command test</h2>
-          <label>Command type</label>
-          <select id="commandType">
-            <option value="connector.ping">connector.ping</option>
-            <option value="openclaw.discover">openclaw.discover</option>
-            <option value="openclaw.list_agents">openclaw.list_agents</option>
-            <option value="openclaw.chat">openclaw.chat</option>
-          </select>
-          <label>Payload (JSON)</label>
-          <textarea id="commandPayload">{
-  "message": "hello from connector admin",
-  "agentId": "openclaw/default"
-}</textarea>
-          <button id="commandButton">Execute command locally</button>
-          <pre id="commandResult" class="output"></pre>
+        <article class="panel log-panel">
+          <div class="log-head">OpenClaw Log</div>
+          <pre id="openclawResult" class="log-box"></pre>
         </article>
       </section>
     </main>
