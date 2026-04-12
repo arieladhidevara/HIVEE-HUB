@@ -1,5 +1,6 @@
 import http from "node:http";
-import { access } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
+import os from "node:os";
 import type { Env } from "../config/env.js";
 import type { OpenClawConfig, OpenClawDockerCandidate, OpenClawDockerDiscovery } from "../types/domain.js";
 import { errorToText } from "../utils/text.js";
@@ -153,21 +154,23 @@ export async function tryDockerDiscovery(env: Env, _config: OpenClawConfig): Pro
   }
 }
 
-async function dockerGetJson<T>(socketPath: string, path: string): Promise<T> {
-  return await new Promise<T>((resolve, reject) => {
+async function dockerRequest(socketPath: string, method: string, path: string, body?: unknown): Promise<string> {
+  return await new Promise<string>((resolve, reject) => {
+    const bodyStr = body ? JSON.stringify(body) : undefined;
     const request = http.request(
       {
         socketPath,
         path,
-        method: "GET",
-        headers: { Accept: "application/json" }
+        method,
+        headers: {
+          Accept: "application/json",
+          ...(bodyStr ? { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(bodyStr) } : {})
+        }
       },
       (response) => {
         let raw = "";
         response.setEncoding("utf8");
-        response.on("data", (chunk) => {
-          raw += chunk;
-        });
+        response.on("data", (chunk) => { raw += chunk; });
         response.on("end", () => {
           const status = response.statusCode || 0;
           if (status < 200 || status >= 300) {
@@ -175,18 +178,61 @@ async function dockerGetJson<T>(socketPath: string, path: string): Promise<T> {
             reject(new Error(`Docker API ${path} failed with ${status}${snippet ? `: ${snippet}` : ""}`));
             return;
           }
-          try {
-            resolve((raw ? JSON.parse(raw) : {}) as T);
-          } catch {
-            reject(new Error(`Docker API ${path} returned invalid JSON`));
-          }
+          resolve(raw);
         });
       }
     );
-
     request.on("error", (error) => reject(error));
+    if (bodyStr) request.write(bodyStr);
     request.end();
   });
+}
+
+async function dockerGetJson<T>(socketPath: string, path: string): Promise<T> {
+  const raw = await dockerRequest(socketPath, "GET", path);
+  try {
+    return (raw ? JSON.parse(raw) : {}) as T;
+  } catch {
+    throw new Error(`Docker API ${path} returned invalid JSON`);
+  }
+}
+
+async function getSelfContainerId(): Promise<string | null> {
+  try {
+    const cgroup = await readFile("/proc/self/cgroup", "utf8");
+    const match = cgroup.match(/\/docker\/([a-f0-9]{12,64})/);
+    if (match?.[1]) return match[1];
+  } catch { /* not in docker or no cgroup v1 */ }
+  const hostname = os.hostname();
+  return /^[a-f0-9]{12}$/.test(hostname) ? hostname : null;
+}
+
+export async function tryJoinOpenClawNetworks(
+  socketPath: string,
+  networks: string[]
+): Promise<{ joined: string[]; skipped: string[]; failed: string[] }> {
+  const result = { joined: [] as string[], skipped: [] as string[], failed: [] as string[] };
+  if (!networks.length) return result;
+
+  const selfId = await getSelfContainerId();
+  if (!selfId) return result;
+
+  for (const network of networks) {
+    if (!network) continue;
+    try {
+      await dockerRequest(socketPath, "POST", `/networks/${encodeURIComponent(network)}/connect`, { Container: selfId });
+      result.joined.push(network);
+    } catch (error) {
+      const msg = errorToText(error).toLowerCase();
+      if (msg.includes("already exists") || msg.includes("already connected") || msg.includes("endpoint with name")) {
+        result.skipped.push(network);
+      } else {
+        result.failed.push(network);
+      }
+    }
+  }
+
+  return result;
 }
 
 function isLikelyOpenClawSummary(summary: DockerContainerSummary): boolean {

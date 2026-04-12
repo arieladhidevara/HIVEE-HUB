@@ -4,7 +4,7 @@ import type { CloudCommand, CommandResult, ConnectorStatusPayload, OpenClawConfi
 import type { Env } from "../config/env.js";
 import { CloudApi } from "./cloudApi.js";
 import { OpenClawClient } from "./openclawClient.js";
-import { tryDockerDiscovery } from "./dockerDiscovery.js";
+import { tryDockerDiscovery, tryJoinOpenClawNetworks } from "./dockerDiscovery.js";
 import { ensureTrailingSlashless, errorToText, redactToken } from "../utils/text.js";
 import { persistRuntimeEnvValues } from "../store/runtimeEnv.js";
 import os from "node:os";
@@ -175,7 +175,22 @@ export class ConnectorManager {
         discoveryCandidates: nextDiscoveryCandidates
       });
 
-      const snapshot = await this.discoverOpenClaw();
+      let snapshot = await this.discoverOpenClaw();
+
+      if (!snapshot.healthy) {
+        const networks = [...new Set(
+          scan.healthyCandidates.map((c) => c.network).filter((n): n is string => Boolean(n))
+        )];
+        const joinResult = await tryJoinOpenClawNetworks(
+          this.env.DOCKER_SOCKET_PATH || "/var/run/docker.sock",
+          networks
+        );
+        if (joinResult.joined.length > 0) {
+          appendEvent(this.db, "info", "openclaw.network_join", `Joined Docker network(s): ${joinResult.joined.join(", ")}`, { joined: joinResult.joined, skipped: joinResult.skipped, failed: joinResult.failed });
+          snapshot = await this.discoverOpenClaw();
+        }
+      }
+
       appendEvent(
         this.db,
         snapshot.healthy ? "info" : "warn",
