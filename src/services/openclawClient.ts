@@ -56,12 +56,25 @@ export class OpenClawClient {
   async discover(): Promise<OpenClawSnapshot> {
     const token = this.config.token;
     const transport = this.config.transport;
-    for (const baseUrl of this.getCandidates()) {
-      const modelsRes = await this.fetchModels(baseUrl, token);
-      if (!modelsRes.ok) {
-        continue;
-      }
-      const models = modelsRes.models;
+    const candidates = this.getCandidates();
+    const discoveryTimeoutMs = Math.min(this.config.requestTimeoutMs, 5_000);
+
+    const results = await Promise.allSettled(
+      candidates.map(async (baseUrl) => {
+        const modelsRes = await this.fetchModels(baseUrl, token, discoveryTimeoutMs);
+        if (!modelsRes.ok) throw new Error(modelsRes.error || "no models");
+        return { baseUrl, models: modelsRes.models };
+      })
+    );
+
+    const ordered = candidates
+      .map((baseUrl, i) => ({ baseUrl, result: results[i] }))
+      .filter((item): item is { baseUrl: string; result: PromiseFulfilledResult<{ baseUrl: string; models: string[] }> } =>
+        item.result.status === "fulfilled"
+      );
+
+    if (ordered.length > 0) {
+      const { baseUrl, models } = ordered[0].result.value;
       const agents = await this.fetchAgents(baseUrl, token, models);
       return {
         baseUrl,
@@ -91,14 +104,14 @@ export class OpenClawClient {
     };
   }
 
-  async fetchModels(baseUrl: string, token: string): Promise<{ ok: boolean; models: string[]; error?: string }> {
+  async fetchModels(baseUrl: string, token: string, timeoutMs?: number): Promise<{ ok: boolean; models: string[]; error?: string }> {
     const endpoints = ["/v1/models", "/models", "/api/models", "/api/v1/models"];
     for (const path of endpoints) {
       try {
         const res = await fetch(`${ensureTrailingSlashless(baseUrl)}${path}`, {
           method: "GET",
           headers: this.authHeaders(token),
-          signal: AbortSignal.timeout(this.config.requestTimeoutMs)
+          signal: AbortSignal.timeout(timeoutMs ?? this.config.requestTimeoutMs)
         });
         const contentType = res.headers.get("content-type") || "";
         if (!res.ok) continue;
