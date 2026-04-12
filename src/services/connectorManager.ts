@@ -199,7 +199,7 @@ export class ConnectorManager {
       String(this.env.CLOUD_BASE_URL || cloudBaseUrl || "https://hivee.cloud").trim()
     );
     const normalizedPairingToken = String(pairingToken || "").trim();
-    const snapshot = await this.discoverOpenClawWithDockerFallback();
+    const snapshot = loadOpenClawSnapshot(this.db);
     savePairingState(this.db, {
       ...loadPairingState(this.db),
       cloudBaseUrl: normalizedCloudBaseUrl,
