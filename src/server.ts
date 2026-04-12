@@ -9,7 +9,7 @@ import { registerApiRoutes } from "./routes/api.js";
 import { registerWsBridge } from "./routes/wsBridge.js";
 import type { DB } from "./store/db.js";
 
-export async function buildServer(env: Env, db: DB, manager: ConnectorManager) {
+export async function buildServer(_env: Env, db: DB, manager: ConnectorManager) {
   const app = Fastify({ logger: false });
   await app.register(cors, { origin: true, credentials: true });
 
@@ -22,7 +22,7 @@ export async function buildServer(env: Env, db: DB, manager: ConnectorManager) {
   });
 
   await registerApiRoutes(app, manager);
-  registerWsBridge(app, db, env);
+  registerWsBridge(app, db, manager);
 
   app.get("/", async (_request, reply) => {
     return reply.sendFile("index.html");

@@ -3,7 +3,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import type { DB } from "../store/db.js";
 import { loadOpenClawSnapshot } from "../store/repository.js";
 import { buildWsCandidates } from "../utils/openclaw.js";
-import type { Env } from "../config/env.js";
+import type { ConnectorManager } from "../services/connectorManager.js";
 
 /**
  * Minimal local admin WS bridge.
@@ -12,7 +12,7 @@ import type { Env } from "../config/env.js";
  * It allows a diagnostics client to connect to the connector and have the connector
  * relay frames to the local OpenClaw websocket.
  */
-export function registerWsBridge(app: FastifyInstance, db: DB, env: Env): void {
+export function registerWsBridge(app: FastifyInstance, db: DB, manager: ConnectorManager): void {
   const wss = new WebSocketServer({ noServer: true });
 
   app.server.on("upgrade", (request, socket, head) => {
@@ -24,14 +24,15 @@ export function registerWsBridge(app: FastifyInstance, db: DB, env: Env): void {
 
   wss.on("connection", (client) => {
     const snapshot = loadOpenClawSnapshot(db);
+    const openclawConfig = manager.getOpenClawConfig();
     if (!snapshot.baseUrl) {
       client.send(JSON.stringify({ type: "error", error: "No local OpenClaw base URL configured" }));
       client.close();
       return;
     }
 
-    const token = (env.OPENCLAW_TOKEN || "").trim();
-    const candidates = snapshot.wsCandidates.length ? snapshot.wsCandidates : buildWsCandidates(snapshot.baseUrl, env.OPENCLAW_WS_PATH || undefined);
+    const token = (openclawConfig.token || "").trim();
+    const candidates = snapshot.wsCandidates.length ? snapshot.wsCandidates : buildWsCandidates(snapshot.baseUrl, openclawConfig.wsPath || undefined);
 
     let upstream: WebSocket | null = null;
     let connected = false;
@@ -47,7 +48,7 @@ export function registerWsBridge(app: FastifyInstance, db: DB, env: Env): void {
       const target = candidates[index];
       const ws = new WebSocket(target, {
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-        handshakeTimeout: env.OPENCLAW_REQUEST_TIMEOUT_MS
+        handshakeTimeout: openclawConfig.requestTimeoutMs
       });
 
       ws.on("open", () => {

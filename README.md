@@ -115,6 +115,8 @@ cp .env.example .env
 
 You only need `.env` if you want to pre-seed defaults before opening the admin UI.
 
+Runtime values submitted from the admin UI are also persisted to `data/runtime.env` (`PAIRING_TOKEN`, `OPENCLAW_BASE_URL`, `OPENCLAW_TOKEN`), so clearing browser cache/cookies will not reset them.
+
 ### Docker
 
 ```bash

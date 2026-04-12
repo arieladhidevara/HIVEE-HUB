@@ -6,6 +6,7 @@ import { CloudApi } from "./cloudApi.js";
 import { OpenClawClient } from "./openclawClient.js";
 import { tryDockerDiscovery } from "./dockerDiscovery.js";
 import { ensureTrailingSlashless, errorToText, redactToken } from "../utils/text.js";
+import { persistRuntimeEnvValues } from "../store/runtimeEnv.js";
 import os from "node:os";
 
 export class ConnectorManager {
@@ -64,6 +65,10 @@ export class ConnectorManager {
     this.openclaw.setConfig(next);
     const saved = this.openclaw.getConfig();
     saveOpenClawConfig(this.db, saved);
+    persistRuntimeEnvValues(this.env.DATA_DIR, {
+      OPENCLAW_BASE_URL: saved.baseUrl,
+      OPENCLAW_TOKEN: saved.token
+    });
     appendEvent(this.db, "info", "openclaw.config.updated", "OpenClaw config updated from admin UI", {
       baseUrl: saved.baseUrl,
       transport: saved.transport,
@@ -80,6 +85,10 @@ export class ConnectorManager {
     this.openclaw.setConfig(defaults);
     const saved = this.openclaw.getConfig();
     saveOpenClawConfig(this.db, saved);
+    persistRuntimeEnvValues(this.env.DATA_DIR, {
+      OPENCLAW_BASE_URL: saved.baseUrl,
+      OPENCLAW_TOKEN: saved.token
+    });
     appendEvent(this.db, "info", "openclaw.config.reset", "OpenClaw config reset to env defaults", {
       baseUrl: saved.baseUrl,
       transport: saved.transport,
@@ -132,25 +141,31 @@ export class ConnectorManager {
   }
 
   async pair(cloudBaseUrl: string, pairingToken: string): Promise<PairingState> {
+    const normalizedCloudBaseUrl = ensureTrailingSlashless(String(cloudBaseUrl || "").trim());
+    const normalizedPairingToken = String(pairingToken || "").trim();
     const snapshot = await this.discoverOpenClaw();
     savePairingState(this.db, {
       ...loadPairingState(this.db),
-      cloudBaseUrl,
-      pairingToken,
+      cloudBaseUrl: normalizedCloudBaseUrl,
+      pairingToken: normalizedPairingToken,
       status: "pairing",
       lastError: null,
       updatedAt: Date.now(),
       connectorId: null,
       connectorSecret: null
     });
+    persistRuntimeEnvValues(this.env.DATA_DIR, {
+      CLOUD_BASE_URL: normalizedCloudBaseUrl,
+      PAIRING_TOKEN: normalizedPairingToken
+    });
 
     try {
-      const result = await this.cloudApi.register(pairingToken, cloudBaseUrl, snapshot);
+      const result = await this.cloudApi.register(normalizedPairingToken, normalizedCloudBaseUrl, snapshot);
       const state: PairingState = {
         connectorId: result.connectorId,
         connectorSecret: result.connectorSecret,
-        cloudBaseUrl,
-        pairingToken,
+        cloudBaseUrl: normalizedCloudBaseUrl,
+        pairingToken: normalizedPairingToken,
         status: "paired",
         lastError: null,
         heartbeatIntervalSec: result.heartbeatIntervalSec ?? this.env.CONNECTOR_HEARTBEAT_INTERVAL_SEC,
@@ -158,7 +173,7 @@ export class ConnectorManager {
         updatedAt: Date.now()
       };
       savePairingState(this.db, state);
-      appendEvent(this.db, "info", "pairing.success", `Paired connector ${result.connectorId}`, { cloudBaseUrl });
+      appendEvent(this.db, "info", "pairing.success", `Paired connector ${result.connectorId}`, { cloudBaseUrl: normalizedCloudBaseUrl });
       return state;
     } catch (error) {
       const state: PairingState = {
@@ -168,7 +183,7 @@ export class ConnectorManager {
         updatedAt: Date.now()
       };
       savePairingState(this.db, state);
-      appendEvent(this.db, "error", "pairing.error", state.lastError || "Pairing failed", { cloudBaseUrl });
+      appendEvent(this.db, "error", "pairing.error", state.lastError || "Pairing failed", { cloudBaseUrl: normalizedCloudBaseUrl });
       throw error;
     }
   }
@@ -186,6 +201,10 @@ export class ConnectorManager {
       updatedAt: Date.now()
     };
     savePairingState(this.db, state);
+    persistRuntimeEnvValues(this.env.DATA_DIR, {
+      CLOUD_BASE_URL: "",
+      PAIRING_TOKEN: ""
+    });
     saveCursor(this.db, null);
     appendEvent(this.db, "info", "pairing.clear", "Pairing cleared");
     return state;

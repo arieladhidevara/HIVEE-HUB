@@ -1,5 +1,6 @@
 import "dotenv/config";
 import { loadEnv } from "./config/env.js";
+import { applyRuntimeEnvOverrides } from "./store/runtimeEnv.js";
 import { openDb } from "./store/db.js";
 import { CloudApi } from "./services/cloudApi.js";
 import { OpenClawClient } from "./services/openclawClient.js";
@@ -8,7 +9,7 @@ import { buildServer } from "./server.js";
 import { RuntimeLoops } from "./services/runtime.js";
 import os from "node:os";
 
-const env = loadEnv();
+const env = applyRuntimeEnvOverrides(loadEnv());
 const db = openDb(env);
 const cloudApi = new CloudApi(env);
 const openclaw = new OpenClawClient(env);
