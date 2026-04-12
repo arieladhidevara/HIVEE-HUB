@@ -7,6 +7,9 @@ const hiveeStatusDot = document.getElementById("hiveeStatusDot");
 const hiveeStatusText = document.getElementById("hiveeStatusText");
 const openclawStatusDot = document.getElementById("openclawStatusDot");
 const openclawStatusText = document.getElementById("openclawStatusText");
+const pairButton = document.getElementById("pairButton");
+const saveOpenclawConfigButton = document.getElementById("saveOpenclawConfigButton");
+const dockerScanButton = document.getElementById("dockerScanButton");
 
 let latestConfig = {
   baseUrl: "",
@@ -19,6 +22,8 @@ let dockerCandidates = [];
 let selectedBaseUrl = "";
 const LOG_MAX_ENTRIES = 80;
 let logEntries = [];
+let hiveeConnected = false;
+let openclawConnected = false;
 
 function setStatus(dot, textNode, state, label) {
   dot.className = "status-dot";
@@ -107,12 +112,11 @@ function renderCandidateButtons() {
   for (const candidate of dockerCandidates) {
     const button = document.createElement("button");
     button.className = "candidate-btn";
-    if (candidate.baseUrl === selectedBaseUrl) {
-      button.classList.add("active");
-    }
+    if (candidate.baseUrl === selectedBaseUrl) button.classList.add("active");
     button.type = "button";
+    button.disabled = openclawConnected;
     button.innerHTML = `${candidate.baseUrl}<span class="candidate-sub">${summarizeCandidate(candidate)}</span>`;
-    button.addEventListener("click", () => chooseCandidate(candidate.baseUrl));
+    button.addEventListener("click", () => { if (!openclawConnected) chooseCandidate(candidate.baseUrl); });
     candidateButtons.appendChild(button);
   }
 
@@ -138,7 +142,10 @@ function syncFromStatus(status) {
     openclawTokenInput.value = latestConfig.token || "";
   }
 
-  if (pairing.status === "paired") {
+  hiveeConnected = pairing.status === "paired";
+  openclawConnected = openclaw.healthy === true;
+
+  if (hiveeConnected) {
     setStatus(hiveeStatusDot, hiveeStatusText, "connected", `Connected (${pairing.connectorId || "paired"})`);
   } else if (pairing.status === "error") {
     setStatus(hiveeStatusDot, hiveeStatusText, "error", pairing.lastError || "Connection error");
@@ -148,13 +155,22 @@ function syncFromStatus(status) {
     setStatus(hiveeStatusDot, hiveeStatusText, "idle", "Disconnected");
   }
 
-  if (openclaw.healthy) {
+  if (openclawConnected) {
     setStatus(openclawStatusDot, openclawStatusText, "connected", `Connected (${openclaw.baseUrl || "OpenClaw"})`);
   } else if (openclaw.lastError) {
     setStatus(openclawStatusDot, openclawStatusText, "error", openclaw.lastError);
   } else {
     setStatus(openclawStatusDot, openclawStatusText, "idle", "Disconnected");
   }
+
+  pairingTokenInput.disabled = hiveeConnected;
+  pairButton.disabled = hiveeConnected;
+  pairButton.textContent = hiveeConnected ? "Connected" : "Connect";
+
+  openclawTokenInput.disabled = openclawConnected;
+  saveOpenclawConfigButton.disabled = openclawConnected;
+  saveOpenclawConfigButton.textContent = openclawConnected ? "Connected" : "Connect";
+  dockerScanButton.disabled = openclawConnected;
 
   if (!selectedBaseUrl && latestConfig.baseUrl) {
     selectedBaseUrl = latestConfig.baseUrl;

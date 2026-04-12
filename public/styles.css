@@ -2,7 +2,6 @@
 
 :root {
   --bg: #000000;
-  --bg-soft: #090c16;
   --surface: rgba(12, 16, 28, 0.9);
   --surface-2: rgba(17, 22, 36, 0.95);
   --line: rgba(255, 255, 255, 0.09);
@@ -12,8 +11,6 @@
   --ok: #22d3ee;
   --warn: #facc15;
   --err: #ff4d4d;
-  --yellow: #facc15;
-  --red: #ff4d4d;
   --cyan: #22d3ee;
   --blue: #3b82f6;
   --gradient: linear-gradient(135deg, #facc15 0%, #ff4d4d 40%, #22d3ee 70%, #3b82f6 100%);
@@ -34,11 +31,7 @@ body {
 body {
   color: var(--text);
   font-family: "Manrope", sans-serif;
-  background:
-    radial-gradient(120% 120% at 12% 8%, rgba(59, 130, 246, 0.18), transparent 48%),
-    radial-gradient(90% 80% at 88% 14%, rgba(34, 211, 238, 0.16), transparent 52%),
-    radial-gradient(80% 100% at 50% 100%, rgba(250, 204, 21, 0.08), transparent 58%),
-    var(--bg);
+  background: #000000;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -51,9 +44,7 @@ body {
   padding: 14px;
   border: 1px solid var(--line);
   border-radius: 18px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.01));
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
+  background: rgba(255, 255, 255, 0.015);
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   gap: 14px;
@@ -110,7 +101,7 @@ h1 {
   min-height: 0;
   display: grid;
   grid-template-columns: minmax(340px, 1fr) minmax(0, 1.14fr);
-  grid-template-rows: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 0.7fr) minmax(0, 1.6fr) minmax(0, 0.7fr);
   column-gap: 16px;
   row-gap: 12px;
 }
@@ -121,7 +112,7 @@ h1 {
   gap: 10px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.028), rgba(255, 255, 255, 0.01));
+  background: rgba(255, 255, 255, 0.02);
   padding: 12px;
   overflow: hidden;
 }
@@ -210,11 +201,18 @@ input {
   padding: 0 12px;
   font: inherit;
   outline: none;
+  transition: opacity 200ms ease, border-color 150ms ease;
 }
 
 input:focus {
   border-color: var(--blue);
   box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.18);
+}
+
+input:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  color: var(--muted);
 }
 
 button {
@@ -230,17 +228,26 @@ button {
   background:
     linear-gradient(var(--surface-2), var(--surface-2)) padding-box,
     var(--gradient) border-box;
-  transition: opacity 150ms ease, transform 120ms ease;
+  transition: opacity 150ms ease, transform 120ms ease, background 200ms ease;
 }
 
-button:hover {
+button:hover:not(:disabled) {
   opacity: 0.84;
   transform: translateY(-1px);
 }
 
-button:active {
+button:active:not(:disabled) {
   opacity: 1;
   transform: translateY(0);
+}
+
+button:disabled {
+  background: rgba(255, 255, 255, 0.05) !important;
+  border: 1px solid var(--line) !important;
+  color: var(--muted) !important;
+  cursor: not-allowed;
+  opacity: 1;
+  transform: none !important;
 }
 
 button.ghost {
@@ -254,6 +261,13 @@ button.ghost {
   background: var(--gradient);
   border: none;
   color: #ffffff;
+}
+
+#pairButton:disabled,
+#saveOpenclawConfigButton:disabled {
+  background: rgba(255, 255, 255, 0.06) !important;
+  color: var(--muted) !important;
+  border: 1px solid var(--line) !important;
 }
 
 .status-row {
@@ -272,6 +286,7 @@ button.ghost {
   border-radius: 999px;
   background: var(--warn);
   box-shadow: 0 0 0 3px rgba(250, 204, 21, 0.18);
+  flex-shrink: 0;
 }
 
 .status-dot.connected {
@@ -311,16 +326,16 @@ button.ghost {
   height: 100%;
   padding-right: 3px;
   display: flex;
-  flex-wrap: wrap;
-  align-content: flex-start;
-  gap: 8px;
-  overflow: auto;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
 }
 
 .candidate-btn {
-  width: auto;
+  width: 100%;
   height: auto;
   min-height: 36px;
+  flex-shrink: 0;
   border: 1px solid transparent;
   border-radius: 10px;
   background:
@@ -347,8 +362,9 @@ button.ghost {
 }
 
 .candidate-btn:disabled {
-  opacity: 0.58;
+  opacity: 0.28;
   cursor: not-allowed;
+  transform: none !important;
 }
 
 .candidate-sub {
@@ -401,6 +417,10 @@ button.ghost {
   .activity-log-slot {
     grid-column: 1;
     grid-row: auto;
+  }
+
+  .candidates-slot {
+    min-height: 260px;
   }
 
   .activity-log-slot {
