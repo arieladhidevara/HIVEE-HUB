@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { loadEnv } from "./config/env.js";
 import { openDb } from "./store/db.js";
 import { CloudApi } from "./services/cloudApi.js";
@@ -14,6 +15,23 @@ const openclaw = new OpenClawClient(env);
 const manager = new ConnectorManager(db, env, cloudApi, openclaw);
 
 await manager.discoverOpenClaw();
+
+// Auto-pair on startup if env vars provided.
+if (env.PAIRING_TOKEN && env.CLOUD_BASE_URL) {
+  const status = manager.status();
+  if (status.pairing.status !== "paired") {
+    console.log(`Auto-pairing with ${env.CLOUD_BASE_URL} ...`);
+    try {
+      const result = await manager.pair(env.CLOUD_BASE_URL, env.PAIRING_TOKEN);
+      console.log(`Auto-pair ${result.status === "paired" ? "SUCCESS" : "FAILED"}: ${result.status}`);
+      if (result.lastError) console.log(`Auto-pair error: ${result.lastError}`);
+    } catch (e: any) {
+      console.error(`Auto-pair failed: ${e.message || e}`);
+    }
+  } else {
+    console.log(`Already paired (${status.pairing.connectorId}), skipping auto-pair.`);
+  }
+}
 
 const app = await buildServer(env, db, manager);
 const loops = new RuntimeLoops(env, manager);
