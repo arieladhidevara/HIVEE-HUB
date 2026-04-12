@@ -2,9 +2,8 @@ import http from "node:http";
 import { access } from "node:fs/promises";
 import type { Env } from "../config/env.js";
 import type { OpenClawConfig, OpenClawDockerCandidate, OpenClawDockerDiscovery } from "../types/domain.js";
-import { ensureTrailingSlashless, errorToText } from "../utils/text.js";
+import { errorToText } from "../utils/text.js";
 
-const MODEL_ENDPOINTS = ["/v1/models", "/models", "/api/models", "/api/v1/models"];
 const COMMON_PORTS = [18790, 43136, 18789];
 const MAX_CANDIDATES = 12;
 
@@ -45,7 +44,7 @@ interface CandidateSeed {
   score: number;
 }
 
-export async function tryDockerDiscovery(env: Env, config: OpenClawConfig): Promise<OpenClawDockerDiscovery> {
+export async function tryDockerDiscovery(env: Env, _config: OpenClawConfig): Promise<OpenClawDockerDiscovery> {
   const testedAt = Date.now();
   const socketPath = env.DOCKER_SOCKET_PATH || "/var/run/docker.sock";
 
@@ -122,23 +121,21 @@ export async function tryDockerDiscovery(env: Env, config: OpenClawConfig): Prom
       };
     }
 
-    const timeoutMs = clamp(Math.round(config.requestTimeoutMs / 2), 1500, 8000);
-    const probes = await probeCandidates(seeds, config.token, timeoutMs);
-    const healthyCandidates = probes
-      .filter((item) => item.ok)
-      .sort((a, b) => b.score - a.score || b.models.length - a.models.length);
-    const recommendedBaseUrl = healthyCandidates[0]?.baseUrl || null;
-    const recommendedDiscoveryCandidates = healthyCandidates.map((item) => item.baseUrl);
+    const candidates = seeds.map((seed) => toMetadataCandidate(seed));
+    const recommendedBaseUrl = candidates[0]?.baseUrl || null;
+    const recommendedDiscoveryCandidates = candidates.map((item) => item.baseUrl);
 
     return {
       enabled: true,
       testedAt,
       socketPath,
-      notes: healthyCandidates.length
-        ? [`Found ${healthyCandidates.length} healthy candidate(s).`]
-        : ["No candidate returned JSON models. Check container network wiring and OpenClaw listener ports."],
-      healthyCandidates,
-      probes,
+      notes: candidates.length
+        ? [
+            `Found ${candidates.length} OpenClaw candidate(s) from Docker metadata (HTTP probe skipped by config).`
+          ]
+        : ["No OpenClaw candidates were derived from Docker metadata."],
+      healthyCandidates: candidates,
+      probes: candidates,
       recommendedBaseUrl,
       recommendedDiscoveryCandidates
     };
@@ -194,6 +191,10 @@ async function dockerGetJson<T>(socketPath: string, path: string): Promise<T> {
 
 function isLikelyOpenClawSummary(summary: DockerContainerSummary): boolean {
   const names = (summary.Names || []).map((name) => name.replace(/^\//, ""));
+  const composeService = String(summary.Labels?.["com.docker.compose.service"] || "").trim();
+  const proxyText = `${names.join(" ")} ${summary.Image || ""} ${composeService}`.toLowerCase();
+  if (isProxyLikeText(proxyText)) return false;
+
   const labelText = Object.entries(summary.Labels || {})
     .map(([key, value]) => `${key}:${value}`)
     .join(" ");
@@ -210,6 +211,8 @@ function buildCandidateSeeds(containers: DockerContainerInspect[]): CandidateSee
   const byBaseUrl = new Map<string, CandidateSeed>();
 
   for (const container of containers) {
+    if (isProxyContainer(container)) continue;
+
     const containerName = normalizeContainerName(container.Name);
     const image = String(container.Config?.Image || "");
     const hostEntries = collectHostEntries(container);
@@ -325,81 +328,7 @@ function scoreCandidate(containerName: string, image: string, hostname: string, 
   return score;
 }
 
-async function probeCandidates(candidates: CandidateSeed[], token: string, timeoutMs: number): Promise<OpenClawDockerCandidate[]> {
-  if (!candidates.length) return [];
-
-  const output = new Array<OpenClawDockerCandidate>(candidates.length);
-  const concurrency = Math.min(3, candidates.length);
-  let cursor = 0;
-
-  await Promise.all(
-    Array.from({ length: concurrency }, async () => {
-      while (true) {
-        const index = cursor;
-        cursor += 1;
-        if (index >= candidates.length) break;
-        output[index] = await probeCandidate(candidates[index], token, timeoutMs);
-      }
-    })
-  );
-
-  return output;
-}
-
-async function probeCandidate(seed: CandidateSeed, token: string, timeoutMs: number): Promise<OpenClawDockerCandidate> {
-  let lastError = "No model endpoint returned JSON models.";
-  let lastStatusCode: number | null = null;
-  let lastContentType: string | null = null;
-  let lastEndpoint = MODEL_ENDPOINTS[0];
-
-  for (const endpoint of MODEL_ENDPOINTS) {
-    lastEndpoint = endpoint;
-    const url = `${ensureTrailingSlashless(seed.baseUrl)}${endpoint}`;
-    try {
-      const response = await fetch(url, {
-        method: "GET",
-        headers: authHeaders(token),
-        signal: AbortSignal.timeout(timeoutMs)
-      });
-      lastStatusCode = response.status;
-      lastContentType = response.headers.get("content-type");
-
-      if (!response.ok) {
-        lastError = `HTTP ${response.status} from ${endpoint}`;
-        continue;
-      }
-
-      if (!(response.headers.get("content-type") || "").toLowerCase().includes("application/json")) {
-        lastError = `Non-JSON response from ${endpoint}`;
-        continue;
-      }
-
-      const payload = (await response.json()) as unknown;
-      const models = extractModelIds(payload);
-      if (models.length > 0) {
-        return {
-          baseUrl: seed.baseUrl,
-          hostname: seed.hostname,
-          port: seed.port,
-          containerName: seed.containerName,
-          image: seed.image,
-          network: seed.network,
-          ok: true,
-          models,
-          endpoint,
-          statusCode: response.status,
-          contentType: response.headers.get("content-type"),
-          error: null,
-          score: seed.score
-        };
-      }
-
-      lastError = `JSON response had no models at ${endpoint}`;
-    } catch (error) {
-      lastError = `${describeError(error)} at ${endpoint}`;
-    }
-  }
-
+function toMetadataCandidate(seed: CandidateSeed): OpenClawDockerCandidate {
   return {
     baseUrl: seed.baseUrl,
     hostname: seed.hostname,
@@ -407,47 +336,27 @@ async function probeCandidate(seed: CandidateSeed, token: string, timeoutMs: num
     containerName: seed.containerName,
     image: seed.image,
     network: seed.network,
-    ok: false,
+    ok: true,
     models: [],
-    endpoint: lastEndpoint,
-    statusCode: lastStatusCode,
-    contentType: lastContentType,
-    error: lastError,
+    endpoint: "metadata",
+    statusCode: null,
+    contentType: null,
+    error: null,
     score: seed.score
   };
 }
 
-function extractModelIds(payload: unknown): string[] {
-  const record = payload && typeof payload === "object" ? (payload as Record<string, unknown>) : {};
-  const rawData = record.data;
-  if (Array.isArray(rawData)) {
-    return rawData
-      .map((item) => {
-        if (item && typeof item === "object" && "id" in item) {
-          return String((item as { id?: unknown }).id || "").trim();
-        }
-        return "";
-      })
-      .filter(Boolean);
-  }
-
-  const rawModels = record.models;
-  if (Array.isArray(rawModels)) {
-    return rawModels
-      .map((item) => {
-        if (item && typeof item === "object" && "id" in item) {
-          return String((item as { id?: unknown }).id || "").trim();
-        }
-        return String(item || "").trim();
-      })
-      .filter(Boolean);
-  }
-
-  return [];
+function isProxyContainer(container: DockerContainerInspect): boolean {
+  const name = normalizeContainerName(container.Name);
+  const image = String(container.Config?.Image || "");
+  const composeService = String(container.Config?.Labels?.["com.docker.compose.service"] || "");
+  return isProxyLikeText(`${name} ${image} ${composeService}`.toLowerCase());
 }
 
-function authHeaders(token: string): HeadersInit {
-  return token ? { Authorization: `Bearer ${token}`, Accept: "application/json" } : { Accept: "application/json" };
+function isProxyLikeText(value: string): boolean {
+  const lowered = String(value || "").toLowerCase();
+  if (!lowered) return false;
+  return lowered.includes("proxy");
 }
 
 function normalizeContainerName(raw: string | undefined): string {
@@ -458,10 +367,6 @@ function normalizeContainerName(raw: string | undefined): string {
 
 function isHostnameLike(value: string): boolean {
   return /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(value);
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(Math.max(value, min), max);
 }
 
 function describeError(error: unknown): string {

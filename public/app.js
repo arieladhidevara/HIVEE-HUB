@@ -1,7 +1,7 @@
 const pairingTokenInput = document.getElementById("pairingToken");
 const openclawTokenInput = document.getElementById("openclawToken");
-const pairingLog = document.getElementById("pairingResult");
-const openclawLog = document.getElementById("openclawResult");
+const activityLog = document.getElementById("activityLog");
+const candidateMeta = document.getElementById("candidateMeta");
 const candidateButtons = document.getElementById("candidateButtons");
 const hiveeStatusDot = document.getElementById("hiveeStatusDot");
 const hiveeStatusText = document.getElementById("hiveeStatusText");
@@ -17,6 +17,8 @@ let latestConfig = {
 
 let dockerCandidates = [];
 let selectedBaseUrl = "";
+const LOG_MAX_ENTRIES = 80;
+let logEntries = [];
 
 function setStatus(dot, textNode, state, label) {
   dot.className = "status-dot";
@@ -40,9 +42,22 @@ function setLog(target, payload) {
   target.textContent = typeof payload === "string" ? payload : safeJson(payload);
 }
 
+function appendLog(scope, payload) {
+  const stamp = new Date().toLocaleTimeString("en-GB", { hour12: false });
+  const header = `[${stamp}] [${scope}]`;
+  const body = typeof payload === "string" ? payload : safeJson(payload);
+  logEntries.push(`${header}\n${body}`);
+  if (logEntries.length > LOG_MAX_ENTRIES) {
+    logEntries = logEntries.slice(-LOG_MAX_ENTRIES);
+  }
+  setLog(activityLog, logEntries.join("\n\n"));
+  activityLog.scrollTop = activityLog.scrollHeight;
+}
+
 function summarizeCandidate(candidate) {
+  const endpoint = candidate?.endpoint || "metadata";
+  if (endpoint === "metadata") return "Detected from Docker metadata";
   const modelCount = Array.isArray(candidate?.models) ? candidate.models.length : 0;
-  const endpoint = candidate?.endpoint || "/v1/models";
   return `${modelCount} model(s) via ${endpoint}`;
 }
 
@@ -64,6 +79,18 @@ function chooseCandidate(baseUrl) {
   renderCandidateButtons();
 }
 
+function syncCandidateMeta() {
+  if (!candidateMeta) return;
+  if (!dockerCandidates.length) {
+    candidateMeta.textContent = "No candidate selected.";
+    return;
+  }
+  const active = dockerCandidates.find((item) => item.baseUrl === selectedBaseUrl) || dockerCandidates[0];
+  if (!selectedBaseUrl && active?.baseUrl) selectedBaseUrl = active.baseUrl;
+  const picked = active?.baseUrl || "No candidate selected";
+  candidateMeta.textContent = `${dockerCandidates.length} candidate(s). Selected: ${picked}`;
+}
+
 function renderCandidateButtons() {
   candidateButtons.innerHTML = "";
 
@@ -73,6 +100,7 @@ function renderCandidateButtons() {
     button.disabled = true;
     button.textContent = "No candidate yet";
     candidateButtons.appendChild(button);
+    syncCandidateMeta();
     return;
   }
 
@@ -87,6 +115,8 @@ function renderCandidateButtons() {
     button.addEventListener("click", () => chooseCandidate(candidate.baseUrl));
     candidateButtons.appendChild(button);
   }
+
+  syncCandidateMeta();
 }
 
 function syncFromStatus(status) {
@@ -149,12 +179,12 @@ async function getStatus() {
 }
 
 async function scanDockerCandidates() {
-  setLog(openclawLog, "Scanning Docker candidates...");
+  appendLog("OpenClaw", "Scanning Docker candidates...");
   const data = await postJson("/api/openclaw/discover/docker", {
     token: openclawTokenInput.value.trim(),
     autoApply: true
   });
-  setLog(openclawLog, data);
+  appendLog("OpenClaw", data);
 
   dockerCandidates = Array.isArray(data?.scan?.healthyCandidates) ? data.scan.healthyCandidates : [];
   if (data?.scan?.recommendedBaseUrl) {
@@ -169,22 +199,22 @@ async function scanDockerCandidates() {
 async function connectHivee() {
   const token = pairingTokenInput.value.trim();
   if (!token) {
-    setLog(pairingLog, "Hivee token is required.");
+    appendLog("Hivee", "Hivee token is required.");
     return;
   }
 
-  setLog(pairingLog, "Connecting to Hivee...");
+  appendLog("Hivee", "Connecting to Hivee...");
   const data = await postJson("/api/pairing/start", {
     pairingToken: token
   });
-  setLog(pairingLog, data);
+  appendLog("Hivee", data);
   await getStatus();
 }
 
 async function connectOpenClaw() {
   const baseUrl = (selectedBaseUrl || latestConfig.baseUrl || "").trim();
   if (!baseUrl) {
-    setLog(openclawLog, "Select or discover an OpenClaw candidate first.");
+    appendLog("OpenClaw", "Select or discover an OpenClaw candidate first.");
     return;
   }
 
@@ -197,16 +227,16 @@ async function connectOpenClaw() {
     requestTimeoutMs: latestConfig.requestTimeoutMs || 20000
   };
 
-  setLog(openclawLog, "Saving OpenClaw connection...");
+  appendLog("OpenClaw", "Saving OpenClaw connection...");
   const saveResult = await postJson("/api/openclaw/config", payload);
   if (!saveResult?.ok) {
-    setLog(openclawLog, saveResult);
+    appendLog("OpenClaw", saveResult);
     await getStatus();
     return;
   }
 
   const discoverResult = await postJson("/api/openclaw/discover", {});
-  setLog(openclawLog, {
+  appendLog("OpenClaw", {
     save: saveResult,
     discover: discoverResult
   });

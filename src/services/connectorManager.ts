@@ -150,8 +150,8 @@ export class ConnectorManager {
       scan.healthyCandidates.length > 0 ? "info" : "warn",
       "openclaw.docker_discover",
       scan.healthyCandidates.length > 0
-        ? `Docker discovery found ${scan.healthyCandidates.length} healthy candidate(s)`
-        : "Docker discovery found no healthy candidates",
+        ? `Docker discovery found ${scan.healthyCandidates.length} candidate(s)`
+        : "Docker discovery found no candidates",
       {
         enabled: scan.enabled,
         socketPath: scan.socketPath,

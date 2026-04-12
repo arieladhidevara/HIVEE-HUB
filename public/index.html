@@ -21,6 +21,11 @@
 
       <section class="workspace-grid">
         <article class="slot hivee-token-slot">
+          <div class="slot-head">
+            <span class="slot-kicker">Step 1</span>
+            <h2 class="slot-title">Connect Hivee</h2>
+            <p class="slot-hint">Pair connector with your Hivee token first.</p>
+          </div>
           <label for="pairingToken">Hivee Token</label>
           <div class="field-row">
             <input id="pairingToken" placeholder="pair_live_xxx" autocomplete="off" />
@@ -32,25 +37,26 @@
           </div>
         </article>
 
-        <article class="slot hivee-log-slot">
-          <div class="log-head">Hivee Log</div>
-          <pre id="pairingResult" class="log-box"></pre>
-        </article>
-
         <article class="slot candidates-slot">
+          <div class="slot-head">
+            <span class="slot-kicker">Step 2</span>
+            <h2 class="slot-title">Choose Candidate</h2>
+            <p class="slot-hint">Scan Docker, then pick the OpenClaw target.</p>
+          </div>
           <div class="candidate-header">
             <span>OpenClaw Candidates</span>
             <button id="dockerScanButton" class="ghost">Discover</button>
           </div>
+          <p id="candidateMeta" class="candidate-meta">No candidate selected.</p>
           <div id="candidateButtons" class="candidate-buttons"></div>
         </article>
 
-        <article class="slot openclaw-log-slot">
-          <div class="log-head">OpenClaw Log</div>
-          <pre id="openclawResult" class="log-box"></pre>
-        </article>
-
         <article class="slot openclaw-token-slot">
+          <div class="slot-head">
+            <span class="slot-kicker">Step 3</span>
+            <h2 class="slot-title">Connect OpenClaw</h2>
+            <p class="slot-hint">Apply token and selected candidate to activate runtime.</p>
+          </div>
           <label for="openclawToken">OpenClaw Token</label>
           <div class="field-row">
             <input id="openclawToken" type="password" placeholder="Bearer token" autocomplete="off" />
@@ -60,6 +66,15 @@
             <span id="openclawStatusDot" class="status-dot"></span>
             <span id="openclawStatusText">Disconnected</span>
           </div>
+        </article>
+
+        <article class="slot activity-log-slot">
+          <div class="slot-head">
+            <span class="slot-kicker">Unified Feed</span>
+            <h2 class="slot-title">Activity Log</h2>
+            <p class="slot-hint">Hivee and OpenClaw events in one timeline.</p>
+          </div>
+          <pre id="activityLog" class="log-box"></pre>
         </article>
       </section>
     </main>
