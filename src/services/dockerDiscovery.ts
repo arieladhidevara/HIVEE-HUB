@@ -5,7 +5,6 @@ import type { Env } from "../config/env.js";
 import type { OpenClawConfig, OpenClawDockerCandidate, OpenClawDockerDiscovery } from "../types/domain.js";
 import { errorToText } from "../utils/text.js";
 
-const COMMON_PORTS = [18790, 43136, 18789];
 const MAX_CANDIDATES = 12;
 
 interface DockerContainerSummary {
@@ -247,10 +246,7 @@ function isLikelyOpenClawSummary(summary: DockerContainerSummary): boolean {
   const haystack = `${names.join(" ")} ${summary.Image || ""} ${labelText}`.toLowerCase();
   if (haystack.includes("openclaw")) return true;
 
-  const summaryPorts = (summary.Ports || [])
-    .filter((item) => item.Type === "tcp")
-    .map((item) => item.PrivatePort || 0);
-  return summaryPorts.some((port) => COMMON_PORTS.includes(port));
+  return false;
 }
 
 function buildCandidateSeeds(containers: DockerContainerInspect[]): CandidateSeed[] {
@@ -320,9 +316,6 @@ function collectHostEntries(container: DockerContainerInspect): HostEntry[] {
 
 function collectPorts(container: DockerContainerInspect): number[] {
   const set = new Set<number>();
-  for (const port of COMMON_PORTS) {
-    set.add(port);
-  }
 
   for (const key of Object.keys(container.Config?.ExposedPorts || {})) {
     const parsed = parsePortSpec(key);
