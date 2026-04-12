@@ -44,13 +44,13 @@ export async function registerApiRoutes(app: FastifyInstance, manager: Connector
   app.post("/api/pairing/start", async (request, reply) => {
     const payload = z
       .object({
-        cloudBaseUrl: z.string().min(1),
+        cloudBaseUrl: z.string().optional(),
         pairingToken: z.string().min(1)
       })
       .parse(request.body ?? {});
 
     try {
-      const state = await manager.pair(payload.cloudBaseUrl, payload.pairingToken);
+      const state = await manager.pair(payload.cloudBaseUrl || "", payload.pairingToken);
       return { ok: true, state };
     } catch (error) {
       reply.code(400);
@@ -65,10 +65,20 @@ export async function registerApiRoutes(app: FastifyInstance, manager: Connector
     return { ok: snapshot.healthy, snapshot };
   });
 
-  app.post("/api/openclaw/discover/docker", async (_request, reply) => {
+  app.post("/api/openclaw/discover/docker", async (request, reply) => {
     try {
-      const scan = await manager.dockerDiscoverOpenClaw();
-      return { ok: scan.healthyCandidates.length > 0, scan };
+      const payload = z
+        .object({
+          token: z.string().optional(),
+          autoApply: z.coerce.boolean().optional().default(true)
+        })
+        .parse(request.body ?? {});
+
+      const scan = await manager.dockerDiscoverOpenClaw({
+        tokenOverride: payload.token,
+        autoApply: payload.autoApply
+      });
+      return { ok: scan.healthyCandidates.length > 0, scan, status: manager.status() };
     } catch (error) {
       reply.code(400);
       return { ok: false, error: error instanceof Error ? error.message : String(error) };

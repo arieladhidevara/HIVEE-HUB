@@ -4,7 +4,7 @@ import type { Env } from "../config/env.js";
 import { ensureTrailingSlashless } from "../utils/text.js";
 
 const RUNTIME_ENV_FILE = "runtime.env";
-const RUNTIME_ENV_KEYS = ["CLOUD_BASE_URL", "PAIRING_TOKEN", "OPENCLAW_BASE_URL", "OPENCLAW_TOKEN"] as const;
+const RUNTIME_ENV_KEYS = ["PAIRING_TOKEN", "OPENCLAW_BASE_URL", "OPENCLAW_TOKEN"] as const;
 
 type RuntimeEnvKey = (typeof RUNTIME_ENV_KEYS)[number];
 type RuntimeEnvValues = Partial<Record<RuntimeEnvKey, string>>;
@@ -32,7 +32,7 @@ function encodeValue(value: string): string {
 function normalizeValue(key: RuntimeEnvKey, value: string): string {
   const trimmed = value.trim();
   if (!trimmed) return "";
-  if (key === "OPENCLAW_BASE_URL" || key === "CLOUD_BASE_URL") {
+  if (key === "OPENCLAW_BASE_URL") {
     return ensureTrailingSlashless(trimmed);
   }
   return trimmed;
@@ -93,7 +93,6 @@ export function applyRuntimeEnvOverrides(env: Env): Env {
   const runtime = loadRuntimeEnvValues(env.DATA_DIR);
   return {
     ...env,
-    CLOUD_BASE_URL: runtime.CLOUD_BASE_URL ?? env.CLOUD_BASE_URL,
     PAIRING_TOKEN: runtime.PAIRING_TOKEN ?? env.PAIRING_TOKEN,
     OPENCLAW_BASE_URL: runtime.OPENCLAW_BASE_URL ?? env.OPENCLAW_BASE_URL,
     OPENCLAW_TOKEN: runtime.OPENCLAW_TOKEN ?? env.OPENCLAW_TOKEN

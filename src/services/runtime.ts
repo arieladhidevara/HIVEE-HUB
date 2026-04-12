@@ -14,7 +14,7 @@ export class RuntimeLoops {
 
     this.discoveryTimer = setInterval(async () => {
       try {
-        await this.manager.discoverOpenClaw();
+        await this.manager.discoverOpenClawWithDockerFallback();
       } catch (error) {
         console.error("Discovery loop error", errorToText(error));
       }

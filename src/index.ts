@@ -15,7 +15,7 @@ const cloudApi = new CloudApi(env);
 const openclaw = new OpenClawClient(env);
 const manager = new ConnectorManager(db, env, cloudApi, openclaw);
 
-await manager.discoverOpenClaw();
+await manager.discoverOpenClawWithDockerFallback();
 
 // Auto-pair on startup if env vars provided.
 if (env.PAIRING_TOKEN && env.CLOUD_BASE_URL) {

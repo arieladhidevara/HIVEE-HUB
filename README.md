@@ -32,9 +32,10 @@ On a VPS, open `http://<your-server-ip>:43137`.
 
 After the UI opens:
 
-1. Fill OpenClaw settings in the **OpenClaw** card (`Base URL`, `Token`, `Discovery candidates`, `Transport`).
-2. Click **Save OpenClaw config**.
-3. Click **Rediscover OpenClaw**.
+1. Fill your `Hivee Token` and `OpenClaw Token`.
+2. Hivee Cloud URL is fixed internally to `https://hivee.cloud` (user does not need to enter URL).
+3. The connector auto-scans Docker for OpenClaw candidates on startup and in the discovery loop.
+4. If needed, click `Discover` to force a fresh Docker scan.
 
 ### VPS access (Hostinger / cloud firewall)
 
@@ -131,7 +132,7 @@ http://127.0.0.1:43137
 
 On a VPS, open `http://<your-server-ip>:43137`.
 
-OpenClaw connection details can be set later from the admin UI under the **OpenClaw** card.
+By default, Docker discovery is enabled and `docker.sock` is mounted read-only in `docker-compose.yml`.
 
 ## Important environment variables
 
@@ -149,12 +150,12 @@ For many deployments, `OPENCLAW_TRANSPORT=http` is the most stable starting poin
 
 ## Docker-assisted discovery
 
-When `ENABLE_DOCKER_DISCOVERY=true` and docker socket is mounted into the connector container, the admin UI can:
+With the default `docker-compose.yml` settings, the connector automatically:
 
 - scan running Docker containers for likely OpenClaw targets
 - build candidate base URLs from detected container hostnames and ports
 - probe model endpoints and keep only healthy JSON candidates
-- let you choose the final base URL from a dropdown before saving config
+- auto-apply the best healthy candidate and run OpenClaw discovery
 
 ## Common commands
 

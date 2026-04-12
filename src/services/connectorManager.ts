@@ -9,6 +9,11 @@ import { ensureTrailingSlashless, errorToText, redactToken } from "../utils/text
 import { persistRuntimeEnvValues } from "../store/runtimeEnv.js";
 import os from "node:os";
 
+interface DockerDiscoverOptions {
+  tokenOverride?: string;
+  autoApply?: boolean;
+}
+
 export class ConnectorManager {
   constructor(
     private readonly db: DB,
@@ -118,8 +123,27 @@ export class ConnectorManager {
     return snapshot;
   }
 
-  async dockerDiscoverOpenClaw(): Promise<OpenClawDockerDiscovery> {
-    const scan = await tryDockerDiscovery(this.env, this.openclaw.getConfig());
+  async discoverOpenClawWithDockerFallback(): Promise<OpenClawSnapshot> {
+    const initial = await this.discoverOpenClaw();
+    if (initial.healthy) return initial;
+
+    await this.dockerDiscoverOpenClaw({ autoApply: true });
+    return loadOpenClawSnapshot(this.db);
+  }
+
+  async dockerDiscoverOpenClaw(options: DockerDiscoverOptions = {}): Promise<OpenClawDockerDiscovery> {
+    const currentConfig = this.openclaw.getConfig();
+    const overrideToken =
+      options.tokenOverride !== undefined ? String(options.tokenOverride || "").trim() : undefined;
+    const scanConfig: OpenClawConfig =
+      overrideToken !== undefined
+        ? {
+            ...currentConfig,
+            token: overrideToken
+          }
+        : currentConfig;
+
+    const scan = await tryDockerDiscovery(this.env, scanConfig);
 
     appendEvent(
       this.db,
@@ -137,13 +161,45 @@ export class ConnectorManager {
       }
     );
 
+    const autoApply = options.autoApply !== false;
+    if (autoApply && scan.recommendedBaseUrl) {
+      const nextDiscoveryCandidates = mergeDiscoveryCandidates(
+        scan.recommendedDiscoveryCandidates,
+        currentConfig.discoveryCandidates
+      );
+      const nextToken = overrideToken !== undefined ? overrideToken : currentConfig.token;
+
+      this.updateOpenClawConfig({
+        baseUrl: scan.recommendedBaseUrl,
+        token: nextToken,
+        discoveryCandidates: nextDiscoveryCandidates
+      });
+
+      const snapshot = await this.discoverOpenClaw();
+      appendEvent(
+        this.db,
+        snapshot.healthy ? "info" : "warn",
+        "openclaw.docker_apply",
+        snapshot.healthy
+          ? `Applied Docker candidate ${scan.recommendedBaseUrl}`
+          : `Applied Docker candidate ${scan.recommendedBaseUrl}, but OpenClaw is still unhealthy`,
+        {
+          baseUrl: scan.recommendedBaseUrl,
+          healthy: snapshot.healthy,
+          error: snapshot.lastError
+        }
+      );
+    }
+
     return scan;
   }
 
   async pair(cloudBaseUrl: string, pairingToken: string): Promise<PairingState> {
-    const normalizedCloudBaseUrl = ensureTrailingSlashless(String(cloudBaseUrl || "").trim());
+    const normalizedCloudBaseUrl = ensureTrailingSlashless(
+      String(this.env.CLOUD_BASE_URL || cloudBaseUrl || "https://hivee.cloud").trim()
+    );
     const normalizedPairingToken = String(pairingToken || "").trim();
-    const snapshot = await this.discoverOpenClaw();
+    const snapshot = await this.discoverOpenClawWithDockerFallback();
     savePairingState(this.db, {
       ...loadPairingState(this.db),
       cloudBaseUrl: normalizedCloudBaseUrl,
@@ -154,10 +210,7 @@ export class ConnectorManager {
       connectorId: null,
       connectorSecret: null
     });
-    persistRuntimeEnvValues(this.env.DATA_DIR, {
-      CLOUD_BASE_URL: normalizedCloudBaseUrl,
-      PAIRING_TOKEN: normalizedPairingToken
-    });
+    persistRuntimeEnvValues(this.env.DATA_DIR, { PAIRING_TOKEN: normalizedPairingToken });
 
     try {
       const result = await this.cloudApi.register(normalizedPairingToken, normalizedCloudBaseUrl, snapshot);
@@ -202,7 +255,6 @@ export class ConnectorManager {
     };
     savePairingState(this.db, state);
     persistRuntimeEnvValues(this.env.DATA_DIR, {
-      CLOUD_BASE_URL: "",
       PAIRING_TOKEN: ""
     });
     saveCursor(this.db, null);
@@ -338,4 +390,22 @@ export class ConnectorManager {
       discoveryCandidates: this.env.OPENCLAW_DISCOVERY_CANDIDATES || ""
     };
   }
+}
+
+function mergeDiscoveryCandidates(recommended: string[], existingCsv: string): string {
+  const existing = String(existingCsv || "")
+    .split(",")
+    .map((item) => ensureTrailingSlashless(String(item || "").trim()))
+    .filter(Boolean);
+
+  const merged = new Set<string>();
+  for (const item of recommended) {
+    const normalized = ensureTrailingSlashless(String(item || "").trim());
+    if (normalized) merged.add(normalized);
+  }
+  for (const item of existing) {
+    if (item) merged.add(item);
+  }
+
+  return Array.from(merged).join(",");
 }

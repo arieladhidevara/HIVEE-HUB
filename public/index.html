@@ -8,7 +8,7 @@
   </head>
   <body>
     <main class="app-shell">
-      <header class="topbar panel">
+      <header class="topbar">
         <div class="brand">
           <img src="/logo.png" alt="Hivee logo" class="brand-logo" />
           <div class="brand-copy">
@@ -19,8 +19,8 @@
         <button id="refreshButton" class="ghost">Refresh</button>
       </header>
 
-      <section class="control-grid">
-        <article class="panel hivee-panel">
+      <section class="workspace-grid">
+        <article class="slot hivee-token-slot">
           <label for="pairingToken">Hivee Token</label>
           <div class="field-row">
             <input id="pairingToken" placeholder="pair_live_xxx" autocomplete="off" />
@@ -32,38 +32,39 @@
           </div>
         </article>
 
-        <article class="panel openclaw-panel">
+        <article class="slot hivee-log-slot">
+          <div class="log-head">Hivee Log</div>
+          <pre id="pairingResult" class="log-box"></pre>
+        </article>
+
+        <article class="slot candidates-slot">
           <div class="candidate-header">
             <span>OpenClaw Candidates</span>
             <button id="dockerScanButton" class="ghost">Discover</button>
           </div>
           <div id="candidateButtons" class="candidate-buttons"></div>
+        </article>
 
+        <article class="slot openclaw-log-slot">
+          <div class="log-head">OpenClaw Log</div>
+          <pre id="openclawResult" class="log-box"></pre>
+        </article>
+
+        <article class="slot openclaw-token-slot">
           <label for="openclawToken">OpenClaw Token</label>
           <div class="field-row">
             <input id="openclawToken" type="password" placeholder="Bearer token" autocomplete="off" />
             <button id="saveOpenclawConfigButton">Connect</button>
           </div>
-          <div class="status-row right">
+          <div class="status-row">
             <span id="openclawStatusDot" class="status-dot"></span>
             <span id="openclawStatusText">Disconnected</span>
           </div>
         </article>
       </section>
-
-      <section class="logs-grid">
-        <article class="panel log-panel">
-          <div class="log-head">Hivee Log</div>
-          <pre id="pairingResult" class="log-box"></pre>
-        </article>
-        <article class="panel log-panel">
-          <div class="log-head">OpenClaw Log</div>
-          <pre id="openclawResult" class="log-box"></pre>
-        </article>
-      </section>
     </main>
 
-  <script src="/app.js" type="module"></script>
-</body>
+    <script src="/app.js" type="module"></script>
+  </body>
 
 </html>

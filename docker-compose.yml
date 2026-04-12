@@ -12,7 +12,7 @@ services:
       DATA_DIR: ${DATA_DIR:-./data}
       CONNECTOR_NAME: ${CONNECTOR_NAME:-Hivee Connector}
       CONNECTOR_BIND_PUBLIC: ${CONNECTOR_BIND_PUBLIC:-false}
-      CLOUD_BASE_URL: ${CLOUD_BASE_URL:-}
+      CLOUD_BASE_URL: ${CLOUD_BASE_URL:-https://hivee.cloud}
       CLOUD_WS_URL: ${CLOUD_WS_URL:-}
       PAIRING_TOKEN: ${PAIRING_TOKEN:-}
       CONNECTOR_HEARTBEAT_INTERVAL_SEC: ${CONNECTOR_HEARTBEAT_INTERVAL_SEC:-15}
@@ -24,11 +24,10 @@ services:
       OPENCLAW_WS_PATH: ${OPENCLAW_WS_PATH:-}
       OPENCLAW_REQUEST_TIMEOUT_MS: ${OPENCLAW_REQUEST_TIMEOUT_MS:-20000}
       OPENCLAW_DISCOVERY_CANDIDATES: ${OPENCLAW_DISCOVERY_CANDIDATES:-http://127.0.0.1:18789,http://127.0.0.1:43136,http://openclaw:18789,http://openclaw:43136,http://openclaw:18790,http://openclaw-izjk-openclaw-1:18790}
-      ENABLE_DOCKER_DISCOVERY: ${ENABLE_DOCKER_DISCOVERY:-false}
+      ENABLE_DOCKER_DISCOVERY: ${ENABLE_DOCKER_DISCOVERY:-true}
       DOCKER_SOCKET_PATH: ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}
     ports:
       - "43137:43137"
     volumes:
       - ./data:/app/data
-      # Optional: mount docker.sock so UI can scan Docker candidates.
-      # - /var/run/docker.sock:/var/run/docker.sock
+      - /var/run/docker.sock:/var/run/docker.sock:ro

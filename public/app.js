@@ -1,5 +1,3 @@
-const CLOUD_BASE_URL = "https://hivee.cloud/";
-
 const pairingTokenInput = document.getElementById("pairingToken");
 const openclawTokenInput = document.getElementById("openclawToken");
 const pairingLog = document.getElementById("pairingResult");
@@ -152,7 +150,10 @@ async function getStatus() {
 
 async function scanDockerCandidates() {
   setLog(openclawLog, "Scanning Docker candidates...");
-  const data = await postJson("/api/openclaw/discover/docker", {});
+  const data = await postJson("/api/openclaw/discover/docker", {
+    token: openclawTokenInput.value.trim(),
+    autoApply: true
+  });
   setLog(openclawLog, data);
 
   dockerCandidates = Array.isArray(data?.scan?.healthyCandidates) ? data.scan.healthyCandidates : [];
@@ -162,6 +163,7 @@ async function scanDockerCandidates() {
     selectedBaseUrl = dockerCandidates[0].baseUrl;
   }
   renderCandidateButtons();
+  await getStatus();
 }
 
 async function connectHivee() {
@@ -173,7 +175,6 @@ async function connectHivee() {
 
   setLog(pairingLog, "Connecting to Hivee...");
   const data = await postJson("/api/pairing/start", {
-    cloudBaseUrl: CLOUD_BASE_URL,
     pairingToken: token
   });
   setLog(pairingLog, data);
