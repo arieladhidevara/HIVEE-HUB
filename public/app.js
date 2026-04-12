@@ -180,20 +180,24 @@ async function getStatus() {
 
 async function scanDockerCandidates() {
   appendLog("OpenClaw", "Scanning Docker candidates...");
-  const data = await postJson("/api/openclaw/discover/docker", {
-    token: openclawTokenInput.value.trim(),
-    autoApply: true
-  });
-  appendLog("OpenClaw", data);
+  try {
+    const data = await postJson("/api/openclaw/discover/docker", {
+      token: openclawTokenInput.value.trim(),
+      autoApply: true
+    });
+    appendLog("OpenClaw", data);
 
-  dockerCandidates = Array.isArray(data?.scan?.healthyCandidates) ? data.scan.healthyCandidates : [];
-  if (data?.scan?.recommendedBaseUrl) {
-    selectedBaseUrl = data.scan.recommendedBaseUrl;
-  } else if (!selectedBaseUrl && dockerCandidates[0]?.baseUrl) {
-    selectedBaseUrl = dockerCandidates[0].baseUrl;
+    dockerCandidates = Array.isArray(data?.scan?.healthyCandidates) ? data.scan.healthyCandidates : [];
+    if (data?.scan?.recommendedBaseUrl) {
+      selectedBaseUrl = data.scan.recommendedBaseUrl;
+    } else if (!selectedBaseUrl && dockerCandidates[0]?.baseUrl) {
+      selectedBaseUrl = dockerCandidates[0].baseUrl;
+    }
+    renderCandidateButtons();
+    await getStatus();
+  } catch (error) {
+    appendLog("OpenClaw", `Error: ${error?.message || String(error)}`);
   }
-  renderCandidateButtons();
-  await getStatus();
 }
 
 async function connectHivee() {
@@ -204,11 +208,13 @@ async function connectHivee() {
   }
 
   appendLog("Hivee", "Connecting to Hivee...");
-  const data = await postJson("/api/pairing/start", {
-    pairingToken: token
-  });
-  appendLog("Hivee", data);
-  await getStatus();
+  try {
+    const data = await postJson("/api/pairing/start", { pairingToken: token });
+    appendLog("Hivee", data);
+    await getStatus();
+  } catch (error) {
+    appendLog("Hivee", `Error: ${error?.message || String(error)}`);
+  }
 }
 
 async function connectOpenClaw() {
@@ -228,19 +234,20 @@ async function connectOpenClaw() {
   };
 
   appendLog("OpenClaw", "Saving OpenClaw connection...");
-  const saveResult = await postJson("/api/openclaw/config", payload);
-  if (!saveResult?.ok) {
-    appendLog("OpenClaw", saveResult);
-    await getStatus();
-    return;
-  }
+  try {
+    const saveResult = await postJson("/api/openclaw/config", payload);
+    if (!saveResult?.ok) {
+      appendLog("OpenClaw", saveResult);
+      await getStatus();
+      return;
+    }
 
-  const discoverResult = await postJson("/api/openclaw/discover", {});
-  appendLog("OpenClaw", {
-    save: saveResult,
-    discover: discoverResult
-  });
-  await getStatus();
+    const discoverResult = await postJson("/api/openclaw/discover", {});
+    appendLog("OpenClaw", { save: saveResult, discover: discoverResult });
+    await getStatus();
+  } catch (error) {
+    appendLog("OpenClaw", `Error: ${error?.message || String(error)}`);
+  }
 }
 
 document.getElementById("pairButton").addEventListener("click", connectHivee);

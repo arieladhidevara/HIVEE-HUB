@@ -392,20 +392,11 @@ export class ConnectorManager {
   }
 }
 
-function mergeDiscoveryCandidates(recommended: string[], existingCsv: string): string {
-  const existing = String(existingCsv || "")
-    .split(",")
-    .map((item) => ensureTrailingSlashless(String(item || "").trim()))
-    .filter(Boolean);
-
+function mergeDiscoveryCandidates(recommended: string[], _existingCsv: string): string {
   const merged = new Set<string>();
   for (const item of recommended) {
     const normalized = ensureTrailingSlashless(String(item || "").trim());
     if (normalized) merged.add(normalized);
   }
-  for (const item of existing) {
-    if (item) merged.add(item);
-  }
-
   return Array.from(merged).join(",");
 }
