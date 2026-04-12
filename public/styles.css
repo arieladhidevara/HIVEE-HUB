@@ -101,7 +101,7 @@ h1 {
   min-height: 0;
   display: grid;
   grid-template-columns: minmax(340px, 1fr) minmax(0, 1.14fr);
-  grid-template-rows: minmax(0, 0.7fr) minmax(0, 1.6fr) minmax(0, 0.7fr);
+  grid-template-rows: minmax(180px, 0.8fr) minmax(0, 1.6fr) minmax(180px, 0.8fr);
   column-gap: 16px;
   row-gap: 12px;
 }
@@ -187,8 +187,24 @@ label {
 
 .field-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 8px;
+}
+
+.edit-btn {
+  width: 44px;
+  padding: 0;
+  font-size: 16px;
+  background: rgba(255, 255, 255, 0.05) !important;
+  border: 1px solid var(--line-2) !important;
+  color: var(--muted) !important;
+  flex-shrink: 0;
+}
+
+.edit-btn:hover:not(:disabled) {
+  color: var(--text) !important;
+  border-color: var(--line-2) !important;
+  background: rgba(255, 255, 255, 0.1) !important;
 }
 
 input {

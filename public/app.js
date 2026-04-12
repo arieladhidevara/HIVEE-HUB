@@ -10,6 +10,8 @@ const openclawStatusText = document.getElementById("openclawStatusText");
 const pairButton = document.getElementById("pairButton");
 const saveOpenclawConfigButton = document.getElementById("saveOpenclawConfigButton");
 const dockerScanButton = document.getElementById("dockerScanButton");
+const pairEditButton = document.getElementById("pairEditButton");
+const openclawEditButton = document.getElementById("openclawEditButton");
 
 let latestConfig = {
   baseUrl: "",
@@ -166,11 +168,13 @@ function syncFromStatus(status) {
   pairingTokenInput.disabled = hiveeConnected;
   pairButton.disabled = hiveeConnected;
   pairButton.textContent = hiveeConnected ? "Connected" : "Connect";
+  pairEditButton.hidden = !hiveeConnected;
 
   openclawTokenInput.disabled = openclawConnected;
   saveOpenclawConfigButton.disabled = openclawConnected;
   saveOpenclawConfigButton.textContent = openclawConnected ? "Connected" : "Connect";
   dockerScanButton.disabled = openclawConnected;
+  openclawEditButton.hidden = !openclawConnected;
 
   if (!selectedBaseUrl && latestConfig.baseUrl) {
     selectedBaseUrl = latestConfig.baseUrl;
@@ -266,10 +270,36 @@ async function connectOpenClaw() {
   }
 }
 
-document.getElementById("pairButton").addEventListener("click", connectHivee);
-document.getElementById("dockerScanButton").addEventListener("click", scanDockerCandidates);
-document.getElementById("saveOpenclawConfigButton").addEventListener("click", connectOpenClaw);
+pairButton.addEventListener("click", connectHivee);
+dockerScanButton.addEventListener("click", scanDockerCandidates);
+saveOpenclawConfigButton.addEventListener("click", connectOpenClaw);
 document.getElementById("refreshButton").addEventListener("click", getStatus);
+
+pairEditButton.addEventListener("click", async () => {
+  try {
+    await postJson("/api/pairing/clear", {});
+    hiveeConnected = false;
+    pairingTokenInput.disabled = false;
+    pairButton.disabled = false;
+    pairButton.textContent = "Connect";
+    pairEditButton.hidden = true;
+    pairingTokenInput.value = "";
+    pairingTokenInput.focus();
+  } catch (error) {
+    appendLog("Hivee", `Error clearing pairing: ${error?.message || String(error)}`);
+  }
+});
+
+openclawEditButton.addEventListener("click", () => {
+  openclawConnected = false;
+  openclawTokenInput.disabled = false;
+  saveOpenclawConfigButton.disabled = false;
+  saveOpenclawConfigButton.textContent = "Connect";
+  dockerScanButton.disabled = false;
+  openclawEditButton.hidden = true;
+  renderCandidateButtons();
+  openclawTokenInput.focus();
+});
 
 await getStatus();
 await scanDockerCandidates();
