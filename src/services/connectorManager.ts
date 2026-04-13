@@ -1,6 +1,26 @@
 import type { DB } from "../store/db.js";
-import { appendEvent, loadCursor, loadOpenClawConfig, loadOpenClawSnapshot, loadPairingState, recentEvents, saveCursor, saveOpenClawConfig, saveOpenClawSnapshot, savePairingState, upsertCommandHistory } from "../store/repository.js";
-import type { CloudCommand, CommandResult, ConnectorStatusPayload, OpenClawConfig, OpenClawDockerDiscovery, OpenClawSnapshot, PairingState } from "../types/domain.js";
+import {
+  appendEvent,
+  loadCursor,
+  loadOpenClawConfig,
+  loadOpenClawSnapshot,
+  loadPairingState,
+  recentEvents,
+  saveCursor,
+  saveOpenClawConfig,
+  saveOpenClawSnapshot,
+  savePairingState,
+  upsertCommandHistory
+} from "../store/repository.js";
+import type {
+  CloudCommand,
+  CommandResult,
+  ConnectorStatusPayload,
+  OpenClawConfig,
+  OpenClawDockerDiscovery,
+  OpenClawSnapshot,
+  PairingState
+} from "../types/domain.js";
 import type { Env } from "../config/env.js";
 import { CloudApi } from "./cloudApi.js";
 import { OpenClawClient } from "./openclawClient.js";
@@ -20,18 +40,21 @@ export class ConnectorManager {
   private lastDockerDiscovery: number = 0;
 
   constructor(
+    private readonly connectionId: string,
     private readonly db: DB,
     private readonly env: Env,
     private readonly cloudApi: CloudApi,
     private readonly openclaw: OpenClawClient
   ) {
-    const restored = loadOpenClawConfig(this.db, this.defaultOpenClawConfig());
+    const defaults = this.defaultOpenClawConfig();
+    const restored = loadOpenClawConfig(this.db, this.connectionId, defaults);
     this.openclaw.setConfig(restored);
-    saveOpenClawConfig(this.db, this.openclaw.getConfig());
+    saveOpenClawConfig(this.db, this.connectionId, this.openclaw.getConfig());
   }
 
   status(): ConnectorStatusPayload {
     return {
+      connectionId: this.connectionId,
       connectorName: this.env.CONNECTOR_NAME,
       version: "0.1.0",
       host: {
@@ -39,11 +62,15 @@ export class ConnectorManager {
         platform: process.platform,
         arch: process.arch
       },
-      pairing: loadPairingState(this.db),
+      pairing: loadPairingState(this.db, this.connectionId),
       openclawConfig: this.openclaw.getConfig(),
-      openclaw: loadOpenClawSnapshot(this.db),
-      recentEvents: recentEvents(this.db, 50)
+      openclaw: loadOpenClawSnapshot(this.db, this.connectionId),
+      recentEvents: recentEvents(this.db, this.connectionId, 50)
     };
+  }
+
+  getConnectionId(): string {
+    return this.connectionId;
   }
 
   getOpenClawConfig(): OpenClawConfig {
@@ -73,12 +100,14 @@ export class ConnectorManager {
 
     this.openclaw.setConfig(next);
     const saved = this.openclaw.getConfig();
-    saveOpenClawConfig(this.db, saved);
-    persistRuntimeEnvValues(this.env.DATA_DIR, {
-      OPENCLAW_BASE_URL: saved.baseUrl,
-      OPENCLAW_TOKEN: saved.token
-    });
-    appendEvent(this.db, "info", "openclaw.config.updated", "OpenClaw config updated from admin UI", {
+    saveOpenClawConfig(this.db, this.connectionId, saved);
+    if (this.connectionId === "default") {
+      persistRuntimeEnvValues(this.env.DATA_DIR, {
+        OPENCLAW_BASE_URL: saved.baseUrl,
+        OPENCLAW_TOKEN: saved.token
+      });
+    }
+    appendEvent(this.db, this.connectionId, "info", "openclaw.config.updated", "OpenClaw config updated from admin UI", {
       baseUrl: saved.baseUrl,
       transport: saved.transport,
       wsPath: saved.wsPath,
@@ -93,12 +122,14 @@ export class ConnectorManager {
     const defaults = this.defaultOpenClawConfig();
     this.openclaw.setConfig(defaults);
     const saved = this.openclaw.getConfig();
-    saveOpenClawConfig(this.db, saved);
-    persistRuntimeEnvValues(this.env.DATA_DIR, {
-      OPENCLAW_BASE_URL: saved.baseUrl,
-      OPENCLAW_TOKEN: saved.token
-    });
-    appendEvent(this.db, "info", "openclaw.config.reset", "OpenClaw config reset to env defaults", {
+    saveOpenClawConfig(this.db, this.connectionId, saved);
+    if (this.connectionId === "default") {
+      persistRuntimeEnvValues(this.env.DATA_DIR, {
+        OPENCLAW_BASE_URL: saved.baseUrl,
+        OPENCLAW_TOKEN: saved.token
+      });
+    }
+    appendEvent(this.db, this.connectionId, "info", "openclaw.config.reset", "OpenClaw config reset to env defaults", {
       baseUrl: saved.baseUrl,
       transport: saved.transport,
       wsPath: saved.wsPath,
@@ -111,9 +142,10 @@ export class ConnectorManager {
 
   async discoverOpenClaw(): Promise<OpenClawSnapshot> {
     const snapshot = await this.openclaw.discover();
-    saveOpenClawSnapshot(this.db, snapshot);
+    saveOpenClawSnapshot(this.db, this.connectionId, snapshot);
     appendEvent(
       this.db,
+      this.connectionId,
       snapshot.healthy ? "info" : "warn",
       "openclaw.discover",
       snapshot.healthy ? `OpenClaw healthy at ${snapshot.baseUrl}` : "OpenClaw discovery failed",
@@ -137,7 +169,7 @@ export class ConnectorManager {
     }
     this.lastDockerDiscovery = now;
     await this.dockerDiscoverOpenClaw({ autoApply: true });
-    return loadOpenClawSnapshot(this.db);
+    return loadOpenClawSnapshot(this.db, this.connectionId);
   }
 
   async dockerDiscoverOpenClaw(options: DockerDiscoverOptions = {}): Promise<OpenClawDockerDiscovery> {
@@ -146,16 +178,14 @@ export class ConnectorManager {
       options.tokenOverride !== undefined ? String(options.tokenOverride || "").trim() : undefined;
     const scanConfig: OpenClawConfig =
       overrideToken !== undefined
-        ? {
-            ...currentConfig,
-            token: overrideToken
-          }
+        ? { ...currentConfig, token: overrideToken }
         : currentConfig;
 
     const scan = await tryDockerDiscovery(this.env, scanConfig);
 
     appendEvent(
       this.db,
+      this.connectionId,
       scan.healthyCandidates.length > 0 ? "info" : "warn",
       "openclaw.docker_discover",
       scan.healthyCandidates.length > 0
@@ -191,13 +221,14 @@ export class ConnectorManager {
           networks
         );
         if (joinResult.joined.length > 0) {
-          appendEvent(this.db, "info", "openclaw.network_join", `Joined Docker network(s): ${joinResult.joined.join(", ")}`, { joined: joinResult.joined, skipped: joinResult.skipped, failed: joinResult.failed });
+          appendEvent(this.db, this.connectionId, "info", "openclaw.network_join", `Joined Docker network(s): ${joinResult.joined.join(", ")}`, { joined: joinResult.joined, skipped: joinResult.skipped, failed: joinResult.failed });
           snapshot = await this.discoverOpenClaw();
         }
       }
 
       appendEvent(
         this.db,
+        this.connectionId,
         snapshot.healthy ? "info" : "warn",
         "openclaw.docker_apply",
         snapshot.healthy
@@ -219,9 +250,9 @@ export class ConnectorManager {
       String(this.env.CLOUD_BASE_URL || cloudBaseUrl || "https://hivee.cloud").trim()
     );
     const normalizedPairingToken = String(pairingToken || "").trim();
-    const snapshot = loadOpenClawSnapshot(this.db);
-    savePairingState(this.db, {
-      ...loadPairingState(this.db),
+    const snapshot = loadOpenClawSnapshot(this.db, this.connectionId);
+    savePairingState(this.db, this.connectionId, {
+      ...loadPairingState(this.db, this.connectionId),
       cloudBaseUrl: normalizedCloudBaseUrl,
       pairingToken: normalizedPairingToken,
       status: "pairing",
@@ -230,7 +261,9 @@ export class ConnectorManager {
       connectorId: null,
       connectorSecret: null
     });
-    persistRuntimeEnvValues(this.env.DATA_DIR, { PAIRING_TOKEN: normalizedPairingToken });
+    if (this.connectionId === "default") {
+      persistRuntimeEnvValues(this.env.DATA_DIR, { PAIRING_TOKEN: normalizedPairingToken });
+    }
 
     try {
       const result = await this.cloudApi.register(normalizedPairingToken, normalizedCloudBaseUrl, snapshot);
@@ -245,18 +278,18 @@ export class ConnectorManager {
         commandPollIntervalSec: result.commandPollIntervalSec ?? this.env.CONNECTOR_COMMAND_POLL_INTERVAL_SEC,
         updatedAt: Date.now()
       };
-      savePairingState(this.db, state);
-      appendEvent(this.db, "info", "pairing.success", `Paired connector ${result.connectorId}`, { cloudBaseUrl: normalizedCloudBaseUrl });
+      savePairingState(this.db, this.connectionId, state);
+      appendEvent(this.db, this.connectionId, "info", "pairing.success", `Paired connector ${result.connectorId}`, { cloudBaseUrl: normalizedCloudBaseUrl });
       return state;
     } catch (error) {
       const state: PairingState = {
-        ...loadPairingState(this.db),
+        ...loadPairingState(this.db, this.connectionId),
         status: "error",
         lastError: errorToText(error),
         updatedAt: Date.now()
       };
-      savePairingState(this.db, state);
-      appendEvent(this.db, "error", "pairing.error", state.lastError || "Pairing failed", { cloudBaseUrl: normalizedCloudBaseUrl });
+      savePairingState(this.db, this.connectionId, state);
+      appendEvent(this.db, this.connectionId, "error", "pairing.error", state.lastError || "Pairing failed", { cloudBaseUrl: normalizedCloudBaseUrl });
       throw error;
     }
   }
@@ -273,34 +306,34 @@ export class ConnectorManager {
       commandPollIntervalSec: this.env.CONNECTOR_COMMAND_POLL_INTERVAL_SEC,
       updatedAt: Date.now()
     };
-    savePairingState(this.db, state);
-    persistRuntimeEnvValues(this.env.DATA_DIR, {
-      PAIRING_TOKEN: ""
-    });
-    saveCursor(this.db, null);
-    appendEvent(this.db, "info", "pairing.clear", "Pairing cleared");
+    savePairingState(this.db, this.connectionId, state);
+    if (this.connectionId === "default") {
+      persistRuntimeEnvValues(this.env.DATA_DIR, { PAIRING_TOKEN: "" });
+    }
+    saveCursor(this.db, this.connectionId, null);
+    appendEvent(this.db, this.connectionId, "info", "pairing.clear", "Pairing cleared");
     return state;
   }
 
   async heartbeat(): Promise<void> {
-    const state = loadPairingState(this.db);
-    const openclaw = loadOpenClawSnapshot(this.db);
+    const state = loadPairingState(this.db, this.connectionId);
+    const openclaw = loadOpenClawSnapshot(this.db, this.connectionId);
     if (state.status !== "paired") return;
     await this.cloudApi.heartbeat(state, openclaw);
-    appendEvent(this.db, "info", "heartbeat.ok", "Heartbeat sent", {
+    appendEvent(this.db, this.connectionId, "info", "heartbeat.ok", "Heartbeat sent", {
       connectorId: state.connectorId,
       cloudBaseUrl: state.cloudBaseUrl
     });
   }
 
   async pollAndExecute(): Promise<void> {
-    const state = loadPairingState(this.db);
+    const state = loadPairingState(this.db, this.connectionId);
     if (state.status !== "paired") return;
 
-    const cursor = loadCursor(this.db);
+    const cursor = loadCursor(this.db, this.connectionId);
     const response = await this.cloudApi.pollCommands(state, cursor);
     if (response.cursor !== cursor) {
-      saveCursor(this.db, response.cursor ?? null);
+      saveCursor(this.db, this.connectionId, response.cursor ?? null);
     }
 
     for (const command of response.commands) {
@@ -309,11 +342,11 @@ export class ConnectorManager {
   }
 
   async executeCloudCommand(command: CloudCommand): Promise<CommandResult> {
-    const state = loadPairingState(this.db);
-    const snapshot = loadOpenClawSnapshot(this.db);
+    const state = loadPairingState(this.db, this.connectionId);
+    const snapshot = loadOpenClawSnapshot(this.db, this.connectionId);
     const startedAt = Date.now();
 
-    upsertCommandHistory(this.db, {
+    upsertCommandHistory(this.db, this.connectionId, {
       cloudCommandId: command.id,
       type: command.type,
       status: "running",
@@ -363,7 +396,7 @@ export class ConnectorManager {
         finishedAt: Date.now()
       };
 
-      upsertCommandHistory(this.db, {
+      upsertCommandHistory(this.db, this.connectionId, {
         cloudCommandId: command.id,
         type: command.type,
         status: "done",
@@ -372,7 +405,7 @@ export class ConnectorManager {
       });
 
       await this.cloudApi.postCommandResult(state, command.id, result);
-      appendEvent(this.db, "info", "command.done", `Executed ${command.type}`, { commandId: command.id });
+      appendEvent(this.db, this.connectionId, "info", "command.done", `Executed ${command.type}`, { commandId: command.id });
       return result;
     } catch (error) {
       const result: CommandResult = {
@@ -383,7 +416,7 @@ export class ConnectorManager {
         startedAt,
         finishedAt: Date.now()
       };
-      upsertCommandHistory(this.db, {
+      upsertCommandHistory(this.db, this.connectionId, {
         cloudCommandId: command.id,
         type: command.type,
         status: "error",
@@ -392,7 +425,7 @@ export class ConnectorManager {
         errorText: result.error
       });
       await this.cloudApi.postCommandResult(state, command.id, result);
-      appendEvent(this.db, "error", "command.error", `Failed ${command.type}`, {
+      appendEvent(this.db, this.connectionId, "error", "command.error", `Failed ${command.type}`, {
         commandId: command.id,
         error: result.error
       });
@@ -410,16 +443,4 @@ export class ConnectorManager {
       discoveryCandidates: this.env.OPENCLAW_DISCOVERY_CANDIDATES || ""
     };
   }
-}
-
-function mergeDiscoveryCandidates(recommended: string[], existingCsv: string): string {
-  if (recommended.length === 0) {
-    return existingCsv;
-  }
-  const merged = new Set<string>();
-  for (const item of recommended) {
-    const normalized = ensureTrailingSlashless(String(item || "").trim());
-    if (normalized) merged.add(normalized);
-  }
-  return Array.from(merged).join(",");
 }

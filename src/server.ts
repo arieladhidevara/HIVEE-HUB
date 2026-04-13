@@ -4,12 +4,12 @@ import fastifyStatic from "@fastify/static";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Env } from "./config/env.js";
-import type { ConnectorManager } from "./services/connectorManager.js";
+import type { ConnectionRegistry } from "./services/connectionRegistry.js";
 import { registerApiRoutes } from "./routes/api.js";
 import { registerWsBridge } from "./routes/wsBridge.js";
 import type { DB } from "./store/db.js";
 
-export async function buildServer(_env: Env, db: DB, manager: ConnectorManager) {
+export async function buildServer(_env: Env, _db: DB, registry: ConnectionRegistry) {
   const app = Fastify({ logger: false });
   await app.register(cors, { origin: true, credentials: true });
 
@@ -21,8 +21,8 @@ export async function buildServer(_env: Env, db: DB, manager: ConnectorManager) 
     prefix: "/"
   });
 
-  await registerApiRoutes(app, manager);
-  registerWsBridge(app, db, manager);
+  await registerApiRoutes(app, registry);
+  registerWsBridge(app, registry);
 
   app.get("/", async (_request, reply) => {
     return reply.sendFile("index.html");

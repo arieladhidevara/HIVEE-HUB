@@ -2,28 +2,27 @@ import "dotenv/config";
 import { loadEnv } from "./config/env.js";
 import { applyRuntimeEnvOverrides } from "./store/runtimeEnv.js";
 import { openDb } from "./store/db.js";
-import { CloudApi } from "./services/cloudApi.js";
-import { OpenClawClient } from "./services/openclawClient.js";
-import { ConnectorManager } from "./services/connectorManager.js";
 import { buildServer } from "./server.js";
-import { RuntimeLoops } from "./services/runtime.js";
+import { ConnectionRegistry } from "./services/connectionRegistry.js";
 import os from "node:os";
 
 const env = applyRuntimeEnvOverrides(loadEnv());
 const db = openDb(env);
-const cloudApi = new CloudApi(env);
-const openclaw = new OpenClawClient(env);
-const manager = new ConnectorManager(db, env, cloudApi, openclaw);
 
-await manager.discoverOpenClawWithDockerFallback();
+const registry = new ConnectionRegistry(db, env);
+await registry.initialize();
 
-// Auto-pair on startup if env vars provided.
+const defaultManager = registry.getDefault();
+
+await defaultManager.discoverOpenClawWithDockerFallback();
+
+// Auto-pair on startup if env vars provided (default connection only)
 if (env.PAIRING_TOKEN && env.CLOUD_BASE_URL) {
-  const status = manager.status();
+  const status = defaultManager.status();
   if (status.pairing.status !== "paired") {
     console.log(`Auto-pairing with ${env.CLOUD_BASE_URL} ...`);
     try {
-      const result = await manager.pair(env.CLOUD_BASE_URL, env.PAIRING_TOKEN);
+      const result = await defaultManager.pair(env.CLOUD_BASE_URL, env.PAIRING_TOKEN);
       console.log(`Auto-pair ${result.status === "paired" ? "SUCCESS" : "FAILED"}: ${result.status}`);
       if (result.lastError) console.log(`Auto-pair error: ${result.lastError}`);
     } catch (e: any) {
@@ -34,12 +33,10 @@ if (env.PAIRING_TOKEN && env.CLOUD_BASE_URL) {
   }
 }
 
-const app = await buildServer(env, db, manager);
-const loops = new RuntimeLoops(env, manager);
-loops.start();
+const app = await buildServer(env, db, registry);
 
 const shutdown = async () => {
-  loops.stop();
+  registry.stopAll();
   await app.close();
   db.close();
   process.exit(0);

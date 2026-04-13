@@ -1,18 +1,15 @@
 import type { FastifyInstance } from "fastify";
 import { WebSocketServer, WebSocket } from "ws";
-import type { DB } from "../store/db.js";
-import { loadOpenClawSnapshot } from "../store/repository.js";
+import type { ConnectionRegistry } from "../services/connectionRegistry.js";
 import { buildWsCandidates } from "../utils/openclaw.js";
-import type { ConnectorManager } from "../services/connectorManager.js";
 
 /**
  * Minimal local admin WS bridge.
  *
- * This endpoint is intentionally local/admin-facing, not public-SaaS-facing.
- * It allows a diagnostics client to connect to the connector and have the connector
- * relay frames to the local OpenClaw websocket.
+ * Connects to a specific connection's OpenClaw instance.
+ * Query param: ?connection=<connectionId> (defaults to 'default')
  */
-export function registerWsBridge(app: FastifyInstance, db: DB, manager: ConnectorManager): void {
+export function registerWsBridge(app: FastifyInstance, registry: ConnectionRegistry): void {
   const wss = new WebSocketServer({ noServer: true });
 
   app.server.on("upgrade", (request, socket, head) => {
@@ -22,9 +19,22 @@ export function registerWsBridge(app: FastifyInstance, db: DB, manager: Connecto
     });
   });
 
-  wss.on("connection", (client) => {
-    const snapshot = loadOpenClawSnapshot(db);
+  wss.on("connection", (client, request) => {
+    // Parse connectionId from query string
+    const url = new URL(request.url ?? "/", "http://localhost");
+    const connectionId = url.searchParams.get("connection") || "default";
+
+    const manager = registry.get(connectionId);
+    if (!manager) {
+      client.send(JSON.stringify({ type: "error", error: `Connection '${connectionId}' not found` }));
+      client.close();
+      return;
+    }
+
+    const status = manager.status();
+    const snapshot = status.openclaw;
     const openclawConfig = manager.getOpenClawConfig();
+
     if (!snapshot.baseUrl) {
       client.send(JSON.stringify({ type: "error", error: "No local OpenClaw base URL configured" }));
       client.close();
@@ -32,7 +42,9 @@ export function registerWsBridge(app: FastifyInstance, db: DB, manager: Connecto
     }
 
     const token = (openclawConfig.token || "").trim();
-    const candidates = snapshot.wsCandidates.length ? snapshot.wsCandidates : buildWsCandidates(snapshot.baseUrl, openclawConfig.wsPath || undefined);
+    const candidates = snapshot.wsCandidates.length
+      ? snapshot.wsCandidates
+      : buildWsCandidates(snapshot.baseUrl, openclawConfig.wsPath || undefined);
 
     let upstream: WebSocket | null = null;
     let connected = false;

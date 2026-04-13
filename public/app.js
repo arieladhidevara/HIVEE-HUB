@@ -13,36 +13,44 @@ const dockerScanButton = document.getElementById("dockerScanButton");
 const pairEditButton = document.getElementById("pairEditButton");
 const openclawEditButton = document.getElementById("openclawEditButton");
 
-let latestConfig = {
-  baseUrl: "",
-  discoveryCandidates: "",
-  token: "",
-  requestTimeoutMs: 20000
-};
+// ---------------------------------------------------------------------------
+// State
+// ---------------------------------------------------------------------------
 
-let dockerCandidates = [];
-let selectedBaseUrl = "";
+let activeConnectionId = "default";
+
+// Per-connection state keyed by connectionId
+const connState = {};
+
+function getState(id) {
+  if (!connState[id]) {
+    connState[id] = {
+      latestConfig: { baseUrl: "", discoveryCandidates: "", token: "", requestTimeoutMs: 20000 },
+      dockerCandidates: [],
+      selectedBaseUrl: "",
+      logEntries: [],
+      hiveeConnected: false,
+      openclawConnected: false
+    };
+  }
+  return connState[id];
+}
+
 const LOG_MAX_ENTRIES = 80;
-let logEntries = [];
-let hiveeConnected = false;
-let openclawConnected = false;
+
+// ---------------------------------------------------------------------------
+// Utilities
+// ---------------------------------------------------------------------------
 
 function setStatus(dot, textNode, state, label) {
   dot.className = "status-dot";
-  if (state === "connected") {
-    dot.classList.add("connected");
-  } else if (state === "error") {
-    dot.classList.add("error");
-  }
+  if (state === "connected") dot.classList.add("connected");
+  else if (state === "error") dot.classList.add("error");
   textNode.textContent = label;
 }
 
 function safeJson(value) {
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch {
-    return String(value);
-  }
+  try { return JSON.stringify(value, null, 2); } catch { return String(value); }
 }
 
 function setLog(target, payload) {
@@ -50,14 +58,13 @@ function setLog(target, payload) {
 }
 
 function appendLog(scope, payload) {
+  const s = getState(activeConnectionId);
   const stamp = new Date().toLocaleTimeString("en-GB", { hour12: false });
   const header = `[${stamp}] [${scope}]`;
   const body = typeof payload === "string" ? payload : safeJson(payload);
-  logEntries.push(`${header}\n${body}`);
-  if (logEntries.length > LOG_MAX_ENTRIES) {
-    logEntries = logEntries.slice(-LOG_MAX_ENTRIES);
-  }
-  setLog(activityLog, logEntries.join("\n\n"));
+  s.logEntries.push(`${header}\n${body}`);
+  if (s.logEntries.length > LOG_MAX_ENTRIES) s.logEntries = s.logEntries.slice(-LOG_MAX_ENTRIES);
+  setLog(activityLog, s.logEntries.join("\n\n"));
   activityLog.scrollTop = activityLog.scrollHeight;
 }
 
@@ -72,115 +79,12 @@ function unique(items) {
   return Array.from(new Set(items.filter(Boolean)));
 }
 
-function buildDiscoveryCandidates() {
-  const fromDocker = dockerCandidates.map((item) => item.baseUrl);
-  const fromConfig = String(latestConfig.discoveryCandidates || "")
-    .split(",")
-    .map((value) => value.trim())
-    .filter(Boolean);
-  return unique([selectedBaseUrl, latestConfig.baseUrl, ...fromDocker, ...fromConfig]);
-}
+// ---------------------------------------------------------------------------
+// API helpers
+// ---------------------------------------------------------------------------
 
-function chooseCandidate(baseUrl) {
-  selectedBaseUrl = baseUrl || "";
-  renderCandidateButtons();
-}
-
-function syncCandidateMeta() {
-  if (!candidateMeta) return;
-  if (!dockerCandidates.length) {
-    candidateMeta.textContent = "No candidate selected.";
-    return;
-  }
-  const active = dockerCandidates.find((item) => item.baseUrl === selectedBaseUrl) || dockerCandidates[0];
-  if (!selectedBaseUrl && active?.baseUrl) selectedBaseUrl = active.baseUrl;
-  const picked = active?.baseUrl || "No candidate selected";
-  candidateMeta.textContent = `${dockerCandidates.length} candidate(s). Selected: ${picked}`;
-}
-
-function renderCandidateButtons() {
-  candidateButtons.innerHTML = "";
-
-  if (!dockerCandidates.length) {
-    const button = document.createElement("button");
-    button.className = "candidate-btn";
-    button.disabled = true;
-    button.textContent = "No candidate yet";
-    candidateButtons.appendChild(button);
-    syncCandidateMeta();
-    return;
-  }
-
-  for (const candidate of dockerCandidates) {
-    const button = document.createElement("button");
-    button.className = "candidate-btn";
-    if (candidate.baseUrl === selectedBaseUrl) button.classList.add("active");
-    button.type = "button";
-    button.disabled = openclawConnected;
-    button.innerHTML = `${candidate.baseUrl}<span class="candidate-sub">${summarizeCandidate(candidate)}</span>`;
-    button.addEventListener("click", () => { if (!openclawConnected) chooseCandidate(candidate.baseUrl); });
-    candidateButtons.appendChild(button);
-  }
-
-  syncCandidateMeta();
-}
-
-function syncFromStatus(status) {
-  const pairing = status?.pairing || {};
-  const openclaw = status?.openclaw || {};
-  const config = status?.openclawConfig || {};
-
-  latestConfig = {
-    baseUrl: String(config.baseUrl || "").trim(),
-    discoveryCandidates: String(config.discoveryCandidates || "").trim(),
-    token: String(config.token || "").trim(),
-    requestTimeoutMs: Number.isFinite(config.requestTimeoutMs) ? Number(config.requestTimeoutMs) : 20000
-  };
-
-  if (!pairingTokenInput.value && pairing.pairingToken) {
-    pairingTokenInput.value = pairing.pairingToken;
-  }
-  if (document.activeElement !== openclawTokenInput) {
-    openclawTokenInput.value = latestConfig.token || "";
-  }
-
-  hiveeConnected = pairing.status === "paired";
-  openclawConnected = openclaw.healthy === true;
-
-  if (hiveeConnected) {
-    setStatus(hiveeStatusDot, hiveeStatusText, "connected", `Connected (${pairing.connectorId || "paired"})`);
-  } else if (pairing.status === "error") {
-    setStatus(hiveeStatusDot, hiveeStatusText, "error", pairing.lastError || "Connection error");
-  } else if (pairing.status === "pairing") {
-    setStatus(hiveeStatusDot, hiveeStatusText, "idle", "Connecting...");
-  } else {
-    setStatus(hiveeStatusDot, hiveeStatusText, "idle", "Disconnected");
-  }
-
-  if (openclawConnected) {
-    setStatus(openclawStatusDot, openclawStatusText, "connected", `Connected (${openclaw.baseUrl || "OpenClaw"})`);
-  } else if (openclaw.lastError) {
-    setStatus(openclawStatusDot, openclawStatusText, "error", openclaw.lastError);
-  } else {
-    setStatus(openclawStatusDot, openclawStatusText, "idle", "Disconnected");
-  }
-
-  pairingTokenInput.disabled = hiveeConnected;
-  pairButton.disabled = hiveeConnected;
-  pairButton.textContent = hiveeConnected ? "Connected" : "Connect";
-  pairEditButton.hidden = !hiveeConnected;
-
-  openclawTokenInput.disabled = openclawConnected;
-  saveOpenclawConfigButton.disabled = openclawConnected;
-  saveOpenclawConfigButton.textContent = openclawConnected ? "Connected" : "Connect";
-  dockerScanButton.disabled = openclawConnected;
-  openclawEditButton.hidden = !openclawConnected;
-
-  if (!selectedBaseUrl && latestConfig.baseUrl) {
-    selectedBaseUrl = latestConfig.baseUrl;
-  }
-
-  renderConnections(status);
+function apiBase(id) {
+  return `/api/connections/${encodeURIComponent(id)}`;
 }
 
 async function postJson(url, body) {
@@ -192,31 +96,262 @@ async function postJson(url, body) {
   return await response.json();
 }
 
-async function getStatus() {
-  const response = await fetch("/api/status");
-  const status = await response.json();
-  syncFromStatus(status);
-  renderCandidateButtons();
-  return status;
+async function deleteJson(url) {
+  const response = await fetch(url, { method: "DELETE" });
+  return await response.json();
 }
 
+// ---------------------------------------------------------------------------
+// Candidate helpers
+// ---------------------------------------------------------------------------
+
+function buildDiscoveryCandidates() {
+  const s = getState(activeConnectionId);
+  const fromDocker = s.dockerCandidates.map((item) => item.baseUrl);
+  const fromConfig = String(s.latestConfig.discoveryCandidates || "")
+    .split(",")
+    .map((v) => v.trim())
+    .filter(Boolean);
+  return unique([s.selectedBaseUrl, s.latestConfig.baseUrl, ...fromDocker, ...fromConfig]);
+}
+
+function chooseCandidate(baseUrl) {
+  const s = getState(activeConnectionId);
+  s.selectedBaseUrl = baseUrl || "";
+  renderCandidateButtons();
+}
+
+function syncCandidateMeta() {
+  if (!candidateMeta) return;
+  const s = getState(activeConnectionId);
+  if (!s.dockerCandidates.length) {
+    candidateMeta.textContent = "No candidate selected.";
+    return;
+  }
+  const active = s.dockerCandidates.find((item) => item.baseUrl === s.selectedBaseUrl) || s.dockerCandidates[0];
+  if (!s.selectedBaseUrl && active?.baseUrl) s.selectedBaseUrl = active.baseUrl;
+  const picked = active?.baseUrl || "No candidate selected";
+  candidateMeta.textContent = `${s.dockerCandidates.length} candidate(s). Selected: ${picked}`;
+}
+
+function renderCandidateButtons() {
+  candidateButtons.innerHTML = "";
+  const s = getState(activeConnectionId);
+
+  if (!s.dockerCandidates.length) {
+    const button = document.createElement("button");
+    button.className = "candidate-btn";
+    button.disabled = true;
+    button.textContent = "No candidate yet";
+    candidateButtons.appendChild(button);
+    syncCandidateMeta();
+    return;
+  }
+
+  for (const candidate of s.dockerCandidates) {
+    const button = document.createElement("button");
+    button.className = "candidate-btn";
+    if (candidate.baseUrl === s.selectedBaseUrl) button.classList.add("active");
+    button.type = "button";
+    button.disabled = s.openclawConnected;
+    button.innerHTML = `${candidate.baseUrl}<span class="candidate-sub">${summarizeCandidate(candidate)}</span>`;
+    button.addEventListener("click", () => { if (!s.openclawConnected) chooseCandidate(candidate.baseUrl); });
+    candidateButtons.appendChild(button);
+  }
+
+  syncCandidateMeta();
+}
+
+// ---------------------------------------------------------------------------
+// Workspace rendering from connection status
+// ---------------------------------------------------------------------------
+
+function syncWorkspaceFromStatus(status) {
+  const id = status.connectionId || activeConnectionId;
+  const s = getState(id);
+  if (id !== activeConnectionId) return; // only render if it's the active connection
+
+  const pairing = status?.pairing || {};
+  const openclaw = status?.openclaw || {};
+  const config = status?.openclawConfig || {};
+
+  s.latestConfig = {
+    baseUrl: String(config.baseUrl || "").trim(),
+    discoveryCandidates: String(config.discoveryCandidates || "").trim(),
+    token: String(config.token || "").trim(),
+    requestTimeoutMs: Number.isFinite(config.requestTimeoutMs) ? Number(config.requestTimeoutMs) : 20000
+  };
+
+  if (!pairingTokenInput.value && pairing.pairingToken) {
+    pairingTokenInput.value = pairing.pairingToken;
+  }
+  if (document.activeElement !== openclawTokenInput) {
+    openclawTokenInput.value = s.latestConfig.token || "";
+  }
+
+  s.hiveeConnected = pairing.status === "paired";
+  s.openclawConnected = openclaw.healthy === true;
+
+  if (s.hiveeConnected) {
+    setStatus(hiveeStatusDot, hiveeStatusText, "connected", `Connected (${pairing.connectorId || "paired"})`);
+  } else if (pairing.status === "error") {
+    setStatus(hiveeStatusDot, hiveeStatusText, "error", pairing.lastError || "Connection error");
+  } else if (pairing.status === "pairing") {
+    setStatus(hiveeStatusDot, hiveeStatusText, "idle", "Connecting...");
+  } else {
+    setStatus(hiveeStatusDot, hiveeStatusText, "idle", "Disconnected");
+  }
+
+  if (s.openclawConnected) {
+    setStatus(openclawStatusDot, openclawStatusText, "connected", `Connected (${openclaw.baseUrl || "OpenClaw"})`);
+  } else if (openclaw.lastError) {
+    setStatus(openclawStatusDot, openclawStatusText, "error", openclaw.lastError);
+  } else {
+    setStatus(openclawStatusDot, openclawStatusText, "idle", "Disconnected");
+  }
+
+  pairingTokenInput.disabled = s.hiveeConnected;
+  pairButton.disabled = s.hiveeConnected;
+  pairButton.textContent = s.hiveeConnected ? "Connected" : "Connect";
+  pairEditButton.hidden = !s.hiveeConnected;
+
+  openclawTokenInput.disabled = s.openclawConnected;
+  saveOpenclawConfigButton.disabled = s.openclawConnected;
+  saveOpenclawConfigButton.textContent = s.openclawConnected ? "Connected" : "Connect";
+  dockerScanButton.disabled = s.openclawConnected;
+  openclawEditButton.hidden = !s.openclawConnected;
+
+  if (!s.selectedBaseUrl && s.latestConfig.baseUrl) {
+    s.selectedBaseUrl = s.latestConfig.baseUrl;
+  }
+
+  // Restore log for this connection
+  setLog(activityLog, s.logEntries.join("\n\n"));
+  activityLog.scrollTop = activityLog.scrollHeight;
+}
+
+// ---------------------------------------------------------------------------
+// Connections bar rendering
+// ---------------------------------------------------------------------------
+
+function renderConnectionsBar(connections) {
+  const list = document.getElementById("connectionsList");
+  if (!list) return;
+
+  if (!connections.length) {
+    list.innerHTML = '<div class="connection-empty">No active connections yet.</div>';
+    return;
+  }
+
+  list.innerHTML = "";
+
+  for (const conn of connections) {
+    const pairing = conn.pairing || {};
+    const openclaw = conn.openclaw || {};
+    const hiveeOk = pairing.status === "paired";
+    const openclawOk = openclaw.healthy === true;
+    const bothConnected = hiveeOk && openclawOk;
+    const isSelected = conn.id === activeConnectionId;
+
+    const connectorLabel = pairing.connectorId
+      ? pairing.connectorId.slice(0, 14) + (pairing.connectorId.length > 14 ? "…" : "")
+      : conn.name || conn.id;
+    const openclawLabel = openclaw.baseUrl
+      ? openclaw.baseUrl.replace(/^https?:\/\//, "").slice(0, 22)
+      : "OpenClaw";
+
+    const card = document.createElement("div");
+    card.className = `connection-card${bothConnected ? " both-connected" : ""}${isSelected ? " selected" : ""}`;
+    card.dataset.connId = conn.id;
+
+    const badgeNum = connections.indexOf(conn) + 1;
+    card.innerHTML = `
+      <div class="connection-badge">${badgeNum}</div>
+      <div class="connection-info">
+        <div class="connection-name">${connectorLabel} · ${openclawLabel}</div>
+        <div class="connection-dots">
+          <span class="status-dot${hiveeOk ? " connected" : pairing.status === "error" ? " error" : ""}"></span>
+          <span class="connection-dot-label">Hivee</span>
+          <span class="status-dot${openclawOk ? " connected" : openclaw.lastError ? " error" : ""}"></span>
+          <span class="connection-dot-label">OpenClaw</span>
+        </div>
+      </div>
+      ${conn.id !== "default" ? '<button class="connection-delete-btn" title="Delete connection">×</button>' : ""}
+    `;
+
+    card.addEventListener("click", async (e) => {
+      if (e.target.closest(".connection-delete-btn")) return;
+      await switchToConnection(conn.id);
+      flashWorkspace();
+    });
+
+    const deleteBtn = card.querySelector(".connection-delete-btn");
+    if (deleteBtn) {
+      deleteBtn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        await removeConnection(conn.id);
+      });
+    }
+
+    list.appendChild(card);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Connection switching
+// ---------------------------------------------------------------------------
+
+async function switchToConnection(id) {
+  activeConnectionId = id;
+
+  // Reset workspace form state
+  pairingTokenInput.value = "";
+  openclawTokenInput.value = "";
+
+  await refreshActiveConnection();
+  renderCandidateButtons();
+}
+
+async function refreshActiveConnection() {
+  try {
+    const response = await fetch(`${apiBase(activeConnectionId)}/status`);
+    const status = await response.json();
+    syncWorkspaceFromStatus(status);
+    await refreshConnectionsList();
+  } catch (error) {
+    appendLog("Hub", `Error refreshing status: ${error?.message || String(error)}`);
+  }
+}
+
+async function refreshConnectionsList() {
+  try {
+    const data = await fetch("/api/connections").then((r) => r.json());
+    renderConnectionsBar(data.connections || []);
+  } catch {}
+}
+
+// ---------------------------------------------------------------------------
+// Actions
+// ---------------------------------------------------------------------------
+
 async function scanDockerCandidates() {
+  const s = getState(activeConnectionId);
   appendLog("OpenClaw", "Scanning Docker candidates...");
   try {
-    const data = await postJson("/api/openclaw/discover/docker", {
+    const data = await postJson(`${apiBase(activeConnectionId)}/openclaw/discover/docker`, {
       token: openclawTokenInput.value.trim(),
       autoApply: true
     });
     appendLog("OpenClaw", data);
 
-    dockerCandidates = Array.isArray(data?.scan?.healthyCandidates) ? data.scan.healthyCandidates : [];
+    s.dockerCandidates = Array.isArray(data?.scan?.healthyCandidates) ? data.scan.healthyCandidates : [];
     if (data?.scan?.recommendedBaseUrl) {
-      selectedBaseUrl = data.scan.recommendedBaseUrl;
-    } else if (!selectedBaseUrl && dockerCandidates[0]?.baseUrl) {
-      selectedBaseUrl = dockerCandidates[0].baseUrl;
+      s.selectedBaseUrl = data.scan.recommendedBaseUrl;
+    } else if (!s.selectedBaseUrl && s.dockerCandidates[0]?.baseUrl) {
+      s.selectedBaseUrl = s.dockerCandidates[0].baseUrl;
     }
     renderCandidateButtons();
-    await getStatus();
+    await refreshActiveConnection();
   } catch (error) {
     appendLog("OpenClaw", `Error: ${error?.message || String(error)}`);
   }
@@ -224,27 +359,22 @@ async function scanDockerCandidates() {
 
 async function connectHivee() {
   const token = pairingTokenInput.value.trim();
-  if (!token) {
-    appendLog("Hivee", "Hivee token is required.");
-    return;
-  }
+  if (!token) { appendLog("Hivee", "Hivee token is required."); return; }
 
   appendLog("Hivee", "Connecting to Hivee...");
   try {
-    const data = await postJson("/api/pairing/start", { pairingToken: token });
+    const data = await postJson(`${apiBase(activeConnectionId)}/pairing/start`, { pairingToken: token });
     appendLog("Hivee", data);
-    await getStatus();
+    await refreshActiveConnection();
   } catch (error) {
     appendLog("Hivee", `Error: ${error?.message || String(error)}`);
   }
 }
 
 async function connectOpenClaw() {
-  const baseUrl = (selectedBaseUrl || latestConfig.baseUrl || "").trim();
-  if (!baseUrl) {
-    appendLog("OpenClaw", "Select or discover an OpenClaw candidate first.");
-    return;
-  }
+  const s = getState(activeConnectionId);
+  const baseUrl = (s.selectedBaseUrl || s.latestConfig.baseUrl || "").trim();
+  if (!baseUrl) { appendLog("OpenClaw", "Select or discover an OpenClaw candidate first."); return; }
 
   const payload = {
     baseUrl,
@@ -252,41 +382,37 @@ async function connectOpenClaw() {
     token: openclawTokenInput.value.trim(),
     transport: "http",
     wsPath: "",
-    requestTimeoutMs: latestConfig.requestTimeoutMs || 20000
+    requestTimeoutMs: s.latestConfig.requestTimeoutMs || 20000
   };
 
   appendLog("OpenClaw", "Saving OpenClaw connection...");
   try {
-    const saveResult = await postJson("/api/openclaw/config", payload);
+    const saveResult = await postJson(`${apiBase(activeConnectionId)}/openclaw/config`, payload);
     if (!saveResult?.ok) {
       appendLog("OpenClaw", saveResult);
-      await getStatus();
+      await refreshActiveConnection();
       return;
     }
 
-    const discoverResult = await postJson("/api/openclaw/discover", {});
+    const discoverResult = await postJson(`${apiBase(activeConnectionId)}/openclaw/discover`, {});
     appendLog("OpenClaw", { save: saveResult, discover: discoverResult });
-    await getStatus();
+    await refreshActiveConnection();
   } catch (error) {
     appendLog("OpenClaw", `Error: ${error?.message || String(error)}`);
   }
 }
 
-let selectedConnectionIndex = 0;
-
-function flashWorkspace() {
-  const grid = document.querySelector(".workspace-grid");
-  if (!grid) return;
-  grid.classList.add("workspace-flash");
-  setTimeout(() => grid.classList.remove("workspace-flash"), 600);
-}
-
-async function deleteConnection() {
+async function clearActiveConnection() {
+  const s = getState(activeConnectionId);
   try {
-    await postJson("/api/pairing/clear", {});
-    await postJson("/api/openclaw/config/reset", {});
-    hiveeConnected = false;
-    openclawConnected = false;
+    await postJson(`${apiBase(activeConnectionId)}/pairing/clear`, {});
+    await postJson(`${apiBase(activeConnectionId)}/openclaw/config/reset`, {});
+
+    s.hiveeConnected = false;
+    s.openclawConnected = false;
+    s.selectedBaseUrl = "";
+    s.dockerCandidates = [];
+
     pairingTokenInput.disabled = false;
     pairingTokenInput.value = "";
     pairButton.disabled = false;
@@ -298,78 +424,55 @@ async function deleteConnection() {
     saveOpenclawConfigButton.textContent = "Connect";
     dockerScanButton.disabled = false;
     openclawEditButton.hidden = true;
-    selectedBaseUrl = "";
-    dockerCandidates = [];
+
     renderCandidateButtons();
-    await getStatus();
-    appendLog("Hub", "Connection deleted.");
+    await refreshActiveConnection();
+    appendLog("Hub", "Connection cleared.");
+  } catch (error) {
+    appendLog("Hub", `Error clearing connection: ${error?.message || String(error)}`);
+  }
+}
+
+async function removeConnection(id) {
+  if (id === "default") return;
+  try {
+    await deleteJson(`/api/connections/${encodeURIComponent(id)}`);
+    delete connState[id];
+    if (activeConnectionId === id) {
+      await switchToConnection("default");
+    } else {
+      await refreshConnectionsList();
+    }
+    appendLog("Hub", `Connection ${id} deleted.`);
   } catch (error) {
     appendLog("Hub", `Error deleting connection: ${error?.message || String(error)}`);
   }
 }
 
-function renderConnections(status) {
-  const list = document.getElementById("connectionsList");
-  if (!list) return;
-
-  const pairing = status?.pairing || {};
-  const openclaw = status?.openclaw || {};
-  const hiveeOk = pairing.status === "paired";
-  const openclawOk = openclaw.healthy === true;
-
-  if (!hiveeOk && !openclawOk) {
-    list.innerHTML = '<div class="connection-empty">No active connections yet.</div>';
-    return;
-  }
-
-  const connectorLabel = pairing.connectorId
-    ? pairing.connectorId.slice(0, 18) + (pairing.connectorId.length > 18 ? "…" : "")
-    : "Hivee";
-  const openclawLabel = openclaw.baseUrl
-    ? openclaw.baseUrl.replace(/^https?:\/\//, "").slice(0, 28)
-    : "OpenClaw";
-
-  const bothConnected = hiveeOk && openclawOk;
-  const isSelected = selectedConnectionIndex === 0;
-
-  list.innerHTML = `
-    <div class="connection-card${bothConnected ? " both-connected" : ""}${isSelected ? " selected" : ""}" data-index="0">
-      <div class="connection-badge">1</div>
-      <div class="connection-info">
-        <div class="connection-name">${connectorLabel} · ${openclawLabel}</div>
-        <div class="connection-dots">
-          <span class="status-dot${hiveeOk ? " connected" : pairing.status === "error" ? " error" : ""}"></span>
-          <span class="connection-dot-label">Hivee</span>
-          <span class="status-dot${openclawOk ? " connected" : openclaw.lastError ? " error" : ""}"></span>
-          <span class="connection-dot-label">OpenClaw</span>
-        </div>
-      </div>
-      <button class="connection-delete-btn" title="Delete connection">×</button>
-    </div>
-  `;
-
-  list.querySelector(".connection-card").addEventListener("click", (e) => {
-    if (e.target.closest(".connection-delete-btn")) return;
-    selectedConnectionIndex = 0;
-    renderConnections(status);
-    flashWorkspace();
-  });
-
-  list.querySelector(".connection-delete-btn").addEventListener("click", (e) => {
-    e.stopPropagation();
-    deleteConnection();
-  });
+function flashWorkspace() {
+  const grid = document.querySelector(".workspace-grid");
+  if (!grid) return;
+  grid.classList.add("workspace-flash");
+  setTimeout(() => grid.classList.remove("workspace-flash"), 600);
 }
+
+// ---------------------------------------------------------------------------
+// Event listeners
+// ---------------------------------------------------------------------------
 
 pairButton.addEventListener("click", connectHivee);
 dockerScanButton.addEventListener("click", scanDockerCandidates);
 saveOpenclawConfigButton.addEventListener("click", connectOpenClaw);
-document.getElementById("refreshButton").addEventListener("click", getStatus);
+
+document.getElementById("refreshButton").addEventListener("click", async () => {
+  await refreshActiveConnection();
+});
 
 pairEditButton.addEventListener("click", async () => {
   try {
-    await postJson("/api/pairing/clear", {});
-    hiveeConnected = false;
+    await postJson(`${apiBase(activeConnectionId)}/pairing/clear`, {});
+    const s = getState(activeConnectionId);
+    s.hiveeConnected = false;
     pairingTokenInput.disabled = false;
     pairButton.disabled = false;
     pairButton.textContent = "Connect";
@@ -382,7 +485,8 @@ pairEditButton.addEventListener("click", async () => {
 });
 
 openclawEditButton.addEventListener("click", () => {
-  openclawConnected = false;
+  const s = getState(activeConnectionId);
+  s.openclawConnected = false;
   openclawTokenInput.disabled = false;
   saveOpenclawConfigButton.disabled = false;
   saveOpenclawConfigButton.textContent = "Connect";
@@ -393,9 +497,21 @@ openclawEditButton.addEventListener("click", () => {
 });
 
 document.getElementById("newConnectionButton").addEventListener("click", async () => {
-  await deleteConnection();
-  pairingTokenInput.focus();
+  try {
+    const data = await postJson("/api/connections", { name: "New Connection" });
+    if (data?.ok && data?.id) {
+      await switchToConnection(data.id);
+      pairingTokenInput.focus();
+      appendLog("Hub", `New connection created (${data.id}).`);
+    }
+  } catch (error) {
+    appendLog("Hub", `Error creating connection: ${error?.message || String(error)}`);
+  }
 });
 
-await getStatus();
+// ---------------------------------------------------------------------------
+// Boot
+// ---------------------------------------------------------------------------
+
+await refreshActiveConnection();
 await scanDockerCandidates();

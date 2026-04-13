@@ -74,6 +74,7 @@ export interface PairingState {
 }
 
 export interface ConnectorStatusPayload {
+  connectionId: string;
   connectorName: string;
   version: string;
   host: HostSnapshot;
@@ -119,4 +120,15 @@ export interface RegisterConnectorResponse {
   connectorSecret: string;
   heartbeatIntervalSec?: number;
   commandPollIntervalSec?: number;
+}
+
+export interface Connection {
+  id: string;
+  name: string;
+  createdAt: number;
+}
+
+export interface ConnectionWithStatus extends Connection {
+  pairing: PairingState;
+  openclaw: OpenClawSnapshot;
 }
