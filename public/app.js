@@ -272,6 +272,42 @@ async function connectOpenClaw() {
   }
 }
 
+let selectedConnectionIndex = 0;
+
+function flashWorkspace() {
+  const grid = document.querySelector(".workspace-grid");
+  if (!grid) return;
+  grid.classList.add("workspace-flash");
+  setTimeout(() => grid.classList.remove("workspace-flash"), 600);
+}
+
+async function deleteConnection() {
+  try {
+    await postJson("/api/pairing/clear", {});
+    await postJson("/api/openclaw/config/reset", {});
+    hiveeConnected = false;
+    openclawConnected = false;
+    pairingTokenInput.disabled = false;
+    pairingTokenInput.value = "";
+    pairButton.disabled = false;
+    pairButton.textContent = "Connect";
+    pairEditButton.hidden = true;
+    openclawTokenInput.disabled = false;
+    openclawTokenInput.value = "";
+    saveOpenclawConfigButton.disabled = false;
+    saveOpenclawConfigButton.textContent = "Connect";
+    dockerScanButton.disabled = false;
+    openclawEditButton.hidden = true;
+    selectedBaseUrl = "";
+    dockerCandidates = [];
+    renderCandidateButtons();
+    await getStatus();
+    appendLog("Hub", "Connection deleted.");
+  } catch (error) {
+    appendLog("Hub", `Error deleting connection: ${error?.message || String(error)}`);
+  }
+}
+
 function renderConnections(status) {
   const list = document.getElementById("connectionsList");
   if (!list) return;
@@ -294,9 +330,10 @@ function renderConnections(status) {
     : "OpenClaw";
 
   const bothConnected = hiveeOk && openclawOk;
+  const isSelected = selectedConnectionIndex === 0;
 
   list.innerHTML = `
-    <div class="connection-card${bothConnected ? " both-connected" : ""}">
+    <div class="connection-card${bothConnected ? " both-connected" : ""}${isSelected ? " selected" : ""}" data-index="0">
       <div class="connection-badge">1</div>
       <div class="connection-info">
         <div class="connection-name">${connectorLabel} · ${openclawLabel}</div>
@@ -307,8 +344,21 @@ function renderConnections(status) {
           <span class="connection-dot-label">OpenClaw</span>
         </div>
       </div>
+      <button class="connection-delete-btn" title="Delete connection">×</button>
     </div>
   `;
+
+  list.querySelector(".connection-card").addEventListener("click", (e) => {
+    if (e.target.closest(".connection-delete-btn")) return;
+    selectedConnectionIndex = 0;
+    renderConnections(status);
+    flashWorkspace();
+  });
+
+  list.querySelector(".connection-delete-btn").addEventListener("click", (e) => {
+    e.stopPropagation();
+    deleteConnection();
+  });
 }
 
 pairButton.addEventListener("click", connectHivee);
@@ -340,6 +390,11 @@ openclawEditButton.addEventListener("click", () => {
   openclawEditButton.hidden = true;
   renderCandidateButtons();
   openclawTokenInput.focus();
+});
+
+document.getElementById("newConnectionButton").addEventListener("click", async () => {
+  await deleteConnection();
+  pairingTokenInput.focus();
 });
 
 await getStatus();

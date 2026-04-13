@@ -508,6 +508,66 @@ button.ghost {
   font-weight: 600;
 }
 
+.connection-card {
+  cursor: pointer;
+  position: relative;
+}
+
+.connection-card.selected {
+  border-color: rgba(59, 130, 246, 0.5);
+  background: rgba(59, 130, 246, 0.06);
+}
+
+.connection-delete-btn {
+  height: 20px;
+  width: 20px;
+  padding: 0;
+  font-size: 15px;
+  line-height: 1;
+  border-radius: 6px;
+  background: rgba(255, 77, 77, 0.1) !important;
+  border: 1px solid rgba(255, 77, 77, 0.25) !important;
+  color: var(--err) !important;
+  opacity: 0;
+  transition: opacity 150ms ease;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.connection-card:hover .connection-delete-btn {
+  opacity: 1;
+}
+
+.connection-card.selected .connection-delete-btn {
+  opacity: 0.7;
+}
+
+.connection-card.selected:hover .connection-delete-btn {
+  opacity: 1;
+}
+
+.new-connection-btn {
+  height: 30px;
+  width: 30px;
+  padding: 0;
+  font-size: 18px;
+  line-height: 1;
+  border-radius: 8px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.workspace-grid {
+  transition: box-shadow 300ms ease;
+}
+
+.workspace-grid.workspace-flash {
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.4);
+  border-radius: var(--radius);
+}
+
 @media (max-width: 980px) {
   body {
     align-items: flex-start;
