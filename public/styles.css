@@ -528,22 +528,15 @@ button.ghost {
   background: rgba(255, 77, 77, 0.1) !important;
   border: 1px solid rgba(255, 77, 77, 0.25) !important;
   color: var(--err) !important;
-  opacity: 0;
-  transition: opacity 150ms ease;
+  opacity: 0.45;
+  transition: opacity 150ms ease, background 150ms ease;
   flex-shrink: 0;
   cursor: pointer;
 }
 
-.connection-card:hover .connection-delete-btn {
+.connection-delete-btn:hover {
   opacity: 1;
-}
-
-.connection-card.selected .connection-delete-btn {
-  opacity: 0.7;
-}
-
-.connection-card.selected:hover .connection-delete-btn {
-  opacity: 1;
+  background: rgba(255, 77, 77, 0.25) !important;
 }
 
 .new-connection-btn {
