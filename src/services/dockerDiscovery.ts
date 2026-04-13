@@ -258,7 +258,15 @@ function buildCandidateSeeds(containers: DockerContainerInspect[]): CandidateSee
     const containerName = normalizeContainerName(container.Name);
     const image = String(container.Config?.Image || "");
     const hostEntries = collectHostEntries(container);
-    const ports = collectPorts(container);
+    const portSet = new Set(collectPorts(container));
+    // For openclaw containers, always probe port 18790 (socat gateway bridge).
+    // The published port (e.g. 44080) may serve a setup wrapper that blocks chat;
+    // 18790 forwards directly to the real gateway process.
+    const isOpenClawLike =
+      containerName.toLowerCase().includes("openclaw") ||
+      image.toLowerCase().includes("openclaw");
+    if (isOpenClawLike) portSet.add(18790);
+    const ports = Array.from(portSet).sort((a, b) => scorePort(b) - scorePort(a) || a - b);
 
     for (const host of hostEntries) {
       for (const port of ports) {
