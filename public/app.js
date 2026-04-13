@@ -179,6 +179,8 @@ function syncFromStatus(status) {
   if (!selectedBaseUrl && latestConfig.baseUrl) {
     selectedBaseUrl = latestConfig.baseUrl;
   }
+
+  renderConnections(status);
 }
 
 async function postJson(url, body) {
@@ -268,6 +270,45 @@ async function connectOpenClaw() {
   } catch (error) {
     appendLog("OpenClaw", `Error: ${error?.message || String(error)}`);
   }
+}
+
+function renderConnections(status) {
+  const list = document.getElementById("connectionsList");
+  if (!list) return;
+
+  const pairing = status?.pairing || {};
+  const openclaw = status?.openclaw || {};
+  const hiveeOk = pairing.status === "paired";
+  const openclawOk = openclaw.healthy === true;
+
+  if (!hiveeOk && !openclawOk) {
+    list.innerHTML = '<div class="connection-empty">No active connections yet.</div>';
+    return;
+  }
+
+  const connectorLabel = pairing.connectorId
+    ? pairing.connectorId.slice(0, 18) + (pairing.connectorId.length > 18 ? "…" : "")
+    : "Hivee";
+  const openclawLabel = openclaw.baseUrl
+    ? openclaw.baseUrl.replace(/^https?:\/\//, "").slice(0, 28)
+    : "OpenClaw";
+
+  const bothConnected = hiveeOk && openclawOk;
+
+  list.innerHTML = `
+    <div class="connection-card${bothConnected ? " both-connected" : ""}">
+      <div class="connection-badge">1</div>
+      <div class="connection-info">
+        <div class="connection-name">${connectorLabel} · ${openclawLabel}</div>
+        <div class="connection-dots">
+          <span class="status-dot${hiveeOk ? " connected" : pairing.status === "error" ? " error" : ""}"></span>
+          <span class="connection-dot-label">Hivee</span>
+          <span class="status-dot${openclawOk ? " connected" : openclaw.lastError ? " error" : ""}"></span>
+          <span class="connection-dot-label">OpenClaw</span>
+        </div>
+      </div>
+    </div>
+  `;
 }
 
 pairButton.addEventListener("click", connectHivee);
