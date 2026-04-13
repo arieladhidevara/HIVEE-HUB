@@ -191,8 +191,6 @@ export async function registerApiRoutes(app: FastifyInstance, registry: Connecti
   // Legacy (backward-compat) routes — all proxy to 'default' connection
   // ---------------------------------------------------------------------------
 
-  app.get("/api/status", async () => registry.getDefault().status());
-
   await registerConnectionRoutes(
     app,
     "/api",
