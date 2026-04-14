@@ -18,7 +18,7 @@ function configPayloadSchema() {
     token: z.string().optional(),
     transport: z.enum(["auto", "ws", "http"]).optional(),
     wsPath: z.string().optional(),
-    requestTimeoutMs: z.coerce.number().int().min(1000).max(120000).optional()
+    requestTimeoutMs: z.coerce.number().int().min(0).max(120000).optional()
   });
 }
 
@@ -173,8 +173,12 @@ export async function registerApiRoutes(app: FastifyInstance, registry: Connecti
       reply.code(400);
       return { ok: false, error: "Cannot delete the default connection" };
     }
+    if (!registry.get(id)) {
+      reply.code(404);
+      return { ok: false, error: "Connection not found" };
+    }
     await registry.delete(id);
-    return { ok: true };
+    return { ok: true, id };
   });
 
   // ---------------------------------------------------------------------------

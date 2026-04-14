@@ -14,13 +14,13 @@ const schema = z.object({
   PAIRING_TOKEN: z.string().optional().default(""),
   CONNECTOR_HEARTBEAT_INTERVAL_SEC: z.coerce.number().default(15),
   CONNECTOR_COMMAND_POLL_INTERVAL_SEC: z.coerce.number().default(5),
-  CONNECTOR_DISCOVERY_INTERVAL_SEC: z.coerce.number().default(30),
+  CONNECTOR_DISCOVERY_INTERVAL_SEC: z.coerce.number().default(15),
 
   OPENCLAW_BASE_URL: z.string().optional().default(""),
   OPENCLAW_TOKEN: z.string().optional().default(""),
   OPENCLAW_TRANSPORT: z.enum(["auto", "ws", "http"]).default("auto"),
   OPENCLAW_WS_PATH: z.string().optional().default(""),
-  OPENCLAW_REQUEST_TIMEOUT_MS: z.coerce.number().default(20_000),
+  OPENCLAW_REQUEST_TIMEOUT_MS: z.coerce.number().default(0),
   OPENCLAW_DISCOVERY_CANDIDATES: z.string().default("http://127.0.0.1:18789,http://127.0.0.1:43136,http://openclaw:18789,http://openclaw:43136,http://openclaw:18790,http://openclaw-izjk-openclaw-1:18790"),
 
   ENABLE_DOCKER_DISCOVERY: z.coerce.boolean().default(true),

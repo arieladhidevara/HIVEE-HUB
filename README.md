@@ -147,6 +147,7 @@ These are the most important values to understand before debugging local OpenCla
 - `DOCKER_SOCKET_PATH`
 
 For many deployments, `OPENCLAW_TRANSPORT=http` is the most stable starting point.
+Set `OPENCLAW_REQUEST_TIMEOUT_MS=0` to disable request timeouts entirely.
 
 ## Docker-assisted discovery
 

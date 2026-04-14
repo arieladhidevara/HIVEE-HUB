@@ -21,8 +21,7 @@ export class CloudSocket {
       {
         headers: {
           Authorization: `Bearer ${state.connectorSecret}`
-        },
-        handshakeTimeout: 15_000
+        }
       }
     );
 

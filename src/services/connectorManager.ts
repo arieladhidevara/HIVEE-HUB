@@ -48,7 +48,11 @@ export class ConnectorManager {
   ) {
     const defaults = this.defaultOpenClawConfig();
     const restored = loadOpenClawConfig(this.db, this.connectionId, defaults);
-    this.openclaw.setConfig(restored);
+    this.openclaw.setConfig({
+      ...restored,
+      // This repo now defaults to no request timeout for cloud/OpenClaw message flow.
+      requestTimeoutMs: 0
+    });
     saveOpenClawConfig(this.db, this.connectionId, this.openclaw.getConfig());
   }
 
@@ -94,7 +98,7 @@ export class ConnectorManager {
       wsPath: input.wsPath !== undefined ? String(input.wsPath || "").trim() : current.wsPath,
       requestTimeoutMs:
         input.requestTimeoutMs !== undefined
-          ? Math.max(1000, Math.round(Number(input.requestTimeoutMs)))
+          ? Math.max(0, Math.round(Number(input.requestTimeoutMs)))
           : current.requestTimeoutMs
     };
 
@@ -319,11 +323,20 @@ export class ConnectorManager {
     const state = loadPairingState(this.db, this.connectionId);
     const openclaw = loadOpenClawSnapshot(this.db, this.connectionId);
     if (state.status !== "paired") return;
-    await this.cloudApi.heartbeat(state, openclaw);
-    appendEvent(this.db, this.connectionId, "info", "heartbeat.ok", "Heartbeat sent", {
-      connectorId: state.connectorId,
-      cloudBaseUrl: state.cloudBaseUrl
-    });
+    try {
+      await this.cloudApi.heartbeat(state, openclaw);
+      appendEvent(this.db, this.connectionId, "info", "heartbeat.ok", "Heartbeat sent", {
+        connectorId: state.connectorId,
+        cloudBaseUrl: state.cloudBaseUrl
+      });
+    } catch (error) {
+      appendEvent(this.db, this.connectionId, "error", "heartbeat.error", "OpenClaw -> cloud heartbeat failed", {
+        connectorId: state.connectorId,
+        cloudBaseUrl: state.cloudBaseUrl,
+        error: errorToText(error)
+      });
+      throw error;
+    }
   }
 
   async pollAndExecute(): Promise<void> {
@@ -331,12 +344,23 @@ export class ConnectorManager {
     if (state.status !== "paired") return;
 
     const cursor = loadCursor(this.db, this.connectionId);
-    const response = await this.cloudApi.pollCommands(state, cursor);
+    let response: { cursor: string | null; commands: CloudCommand[] };
+    try {
+      response = await this.cloudApi.pollCommands(state, cursor);
+    } catch (error) {
+      appendEvent(this.db, this.connectionId, "error", "cloud.command.poll_error", "Cloud -> OpenClaw poll failed", {
+        connectorId: state.connectorId,
+        cloudBaseUrl: state.cloudBaseUrl,
+        error: errorToText(error)
+      });
+      throw error;
+    }
     if (response.cursor !== cursor) {
       saveCursor(this.db, this.connectionId, response.cursor ?? null);
     }
 
     for (const command of response.commands) {
+      this.appendInboundCommandEvent(command);
       await this.executeCloudCommand(command);
     }
   }
@@ -404,7 +428,7 @@ export class ConnectorManager {
         responseJson: result
       });
 
-      await this.cloudApi.postCommandResult(state, command.id, result);
+      await this.postCommandResultWithEvent(state, command, result);
       appendEvent(this.db, this.connectionId, "info", "command.done", `Executed ${command.type}`, { commandId: command.id });
       return result;
     } catch (error) {
@@ -424,7 +448,7 @@ export class ConnectorManager {
         responseJson: result,
         errorText: result.error
       });
-      await this.cloudApi.postCommandResult(state, command.id, result);
+      await this.postCommandResultWithEvent(state, command, result);
       appendEvent(this.db, this.connectionId, "error", "command.error", `Failed ${command.type}`, {
         commandId: command.id,
         error: result.error
@@ -442,5 +466,65 @@ export class ConnectorManager {
       requestTimeoutMs: this.env.OPENCLAW_REQUEST_TIMEOUT_MS,
       discoveryCandidates: this.env.OPENCLAW_DISCOVERY_CANDIDATES || ""
     };
+  }
+
+  private appendInboundCommandEvent(command: CloudCommand): void {
+    appendEvent(this.db, this.connectionId, "info", "cloud.command.received", `Cloud -> OpenClaw: ${command.type}`, {
+      commandId: command.id,
+      ...this.summarizeCommand(command)
+    });
+  }
+
+  private async postCommandResultWithEvent(
+    state: PairingState,
+    command: CloudCommand,
+    result: CommandResult
+  ): Promise<void> {
+    try {
+      await this.cloudApi.postCommandResult(state, command.id, result);
+      appendEvent(
+        this.db,
+        this.connectionId,
+        result.ok ? "info" : "warn",
+        "cloud.command.result",
+        `OpenClaw -> cloud: ${result.ok ? "Sent result" : "Sent error"} for ${command.type}`,
+        {
+          commandId: command.id,
+          ok: result.ok,
+          durationMs: Math.max(0, result.finishedAt - result.startedAt),
+          error: result.error || null
+        }
+      );
+    } catch (error) {
+      appendEvent(this.db, this.connectionId, "error", "cloud.command.result_error", `OpenClaw -> cloud failed for ${command.type}`, {
+        commandId: command.id,
+        error: errorToText(error)
+      });
+      throw error;
+    }
+  }
+
+  private summarizeCommand(command: CloudCommand): Record<string, unknown> {
+    switch (command.type) {
+      case "openclaw.chat":
+        return {
+          agentId: command.payload.agentId ?? null,
+          sessionKey: command.payload.sessionKey ?? null,
+          messagePreview: this.truncateText(command.payload.message)
+        };
+      case "openclaw.proxy_http":
+        return {
+          method: String(command.payload.method || "GET").toUpperCase(),
+          path: String(command.payload.path || "")
+        };
+      default:
+        return {};
+    }
+  }
+
+  private truncateText(value: unknown, limit = 180): string | null {
+    const text = typeof value === "string" ? value.trim() : "";
+    if (!text) return null;
+    return text.length > limit ? `${text.slice(0, limit - 3)}...` : text;
   }
 }

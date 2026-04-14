@@ -1,4 +1,4 @@
-import { WebSocket } from "ws";
+import { WebSocket, type ClientOptions } from "ws";
 import type { Env } from "../config/env.js";
 import type { AgentInfo, OpenClawConfig, OpenClawSnapshot } from "../types/domain.js";
 import { buildWsCandidates, inferAgentsFromModels } from "../utils/openclaw.js";
@@ -22,6 +22,7 @@ export interface OpenClawChatOutput {
 
 export class OpenClawClient {
   private config: OpenClawConfig;
+  private static readonly DISCOVERY_TIMEOUT_MS = 5_000;
 
   constructor(env: Env) {
     this.config = this.normalizeConfig({
@@ -57,7 +58,7 @@ export class OpenClawClient {
     const token = this.config.token;
     const transport = this.config.transport;
     const candidates = this.getCandidates();
-    const discoveryTimeoutMs = Math.min(this.config.requestTimeoutMs, 5_000);
+    const discoveryTimeoutMs = OpenClawClient.DISCOVERY_TIMEOUT_MS;
 
     const results = await Promise.allSettled(
       candidates.map(async (baseUrl) => {
@@ -108,11 +109,10 @@ export class OpenClawClient {
     const endpoints = ["/v1/models", "/models", "/api/models", "/api/v1/models"];
     for (const path of endpoints) {
       try {
-        const res = await fetch(`${ensureTrailingSlashless(baseUrl)}${path}`, {
+        const res = await fetch(`${ensureTrailingSlashless(baseUrl)}${path}`, this.withOptionalTimeout({
           method: "GET",
-          headers: this.authHeaders(token),
-          signal: AbortSignal.timeout(timeoutMs ?? this.config.requestTimeoutMs)
-        });
+          headers: this.authHeaders(token)
+        }, timeoutMs ?? this.config.requestTimeoutMs));
         const contentType = res.headers.get("content-type") || "";
         if (!res.ok) continue;
         if (!contentType.includes("application/json")) continue;
@@ -136,11 +136,10 @@ export class OpenClawClient {
     const endpoints = ["/api/agents", "/v1/agents", "/agents"];
     for (const path of endpoints) {
       try {
-        const res = await fetch(`${ensureTrailingSlashless(baseUrl)}${path}`, {
+        const res = await fetch(`${ensureTrailingSlashless(baseUrl)}${path}`, this.withOptionalTimeout({
           method: "GET",
-          headers: this.authHeaders(token),
-          signal: AbortSignal.timeout(this.config.requestTimeoutMs)
-        });
+          headers: this.authHeaders(token)
+        }, this.config.requestTimeoutMs));
         const contentType = res.headers.get("content-type") || "";
         if (!res.ok || !contentType.includes("application/json")) continue;
         const data = (await res.json()) as any;
@@ -206,15 +205,14 @@ export class OpenClawClient {
         };
 
       try {
-        const res = await fetch(`${ensureTrailingSlashless(baseUrl)}${path}`, {
+        const res = await fetch(`${ensureTrailingSlashless(baseUrl)}${path}`, this.withOptionalTimeout({
           method: "POST",
           headers: {
             ...this.authHeaders(token),
             "content-type": "application/json"
           },
-          body: JSON.stringify(body),
-          signal: AbortSignal.timeout(input.timeoutMs || this.config.requestTimeoutMs)
-        });
+          body: JSON.stringify(body)
+        }, input.timeoutMs ?? this.config.requestTimeoutMs));
         const ct = res.headers.get("content-type") || "";
         if (!res.ok || !ct.includes("application/json")) continue;
         const data = await res.json();
@@ -256,15 +254,14 @@ export class OpenClawClient {
     if (!safePath.startsWith("/v1/") && !safePath.startsWith("/api/") && !safePath.startsWith("/models")) {
       throw new Error("Unsafe proxy path");
     }
-    const res = await fetch(`${ensureTrailingSlashless(snapshot.baseUrl)}${safePath}`, {
+    const res = await fetch(`${ensureTrailingSlashless(snapshot.baseUrl)}${safePath}`, this.withOptionalTimeout({
       method,
       headers: {
         ...this.authHeaders(this.config.token),
         "content-type": "application/json"
       },
-      body: body ? JSON.stringify(body) : undefined,
-      signal: AbortSignal.timeout(this.config.requestTimeoutMs)
-    });
+      body: body ? JSON.stringify(body) : undefined
+    }, this.config.requestTimeoutMs));
     const ct = res.headers.get("content-type") || "";
     if (ct.includes("application/json")) return res.json();
     return { ok: res.ok, status: res.status, text: await res.text() };
@@ -276,10 +273,14 @@ export class OpenClawClient {
       let chunks: string[] = [];
       let sawChallenge = false;
       let sawMeaningfulText = false;
-      const socket = new WebSocket(candidate, {
-        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-        handshakeTimeout: input.timeoutMs || this.config.requestTimeoutMs
-      });
+      const timeoutMs = this.resolveTimeoutMs(input.timeoutMs ?? this.config.requestTimeoutMs);
+      const socketOptions: ClientOptions = {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined
+      };
+      if (timeoutMs) {
+        socketOptions.handshakeTimeout = timeoutMs;
+      }
+      const socket = new WebSocket(candidate, socketOptions);
 
       const finish = (payload: OpenClawChatOutput) => {
         if (settled) return;
@@ -290,9 +291,11 @@ export class OpenClawClient {
         resolve(payload);
       };
 
-      const timer = setTimeout(() => {
-        finish({ ok: false, transport: "ws", error: `Timeout while waiting for WS response from ${candidate}` });
-      }, input.timeoutMs || this.config.requestTimeoutMs);
+      const timer = timeoutMs
+        ? setTimeout(() => {
+          finish({ ok: false, transport: "ws", error: `Timeout while waiting for WS response from ${candidate}` });
+        }, timeoutMs)
+        : null;
 
       socket.on("open", () => {
         const messages = [
@@ -317,19 +320,19 @@ export class OpenClawClient {
             return;
           }
 
-          const maybeText = this.extractText(parsed);
-          if (maybeText) {
-            sawMeaningfulText = true;
-            clearTimeout(timer);
-            finish({ ok: true, transport: "ws", text: maybeText, raw: parsed });
-            return;
-          }
+            const maybeText = this.extractText(parsed);
+            if (maybeText) {
+              sawMeaningfulText = true;
+              if (timer) clearTimeout(timer);
+              finish({ ok: true, transport: "ws", text: maybeText, raw: parsed });
+              return;
+            }
 
-          if (parsed?.type === "error" || parsed?.error) {
-            clearTimeout(timer);
-            finish({
-              ok: false,
-              transport: "ws",
+            if (parsed?.type === "error" || parsed?.error) {
+              if (timer) clearTimeout(timer);
+              finish({
+                ok: false,
+                transport: "ws",
               error: parsed?.error || parsed?.message || raw,
               raw: parsed
             });
@@ -339,7 +342,7 @@ export class OpenClawClient {
           const trimmed = raw.trim();
           if (trimmed) {
             sawMeaningfulText = true;
-            clearTimeout(timer);
+            if (timer) clearTimeout(timer);
             finish({ ok: true, transport: "ws", text: trimmed, raw });
             return;
           }
@@ -347,12 +350,12 @@ export class OpenClawClient {
       });
 
       socket.on("error", (error) => {
-        clearTimeout(timer);
+        if (timer) clearTimeout(timer);
         finish({ ok: false, transport: "ws", error: errorToText(error) });
       });
 
       socket.on("close", (_code, reason) => {
-        clearTimeout(timer);
+        if (timer) clearTimeout(timer);
         if (!settled) {
           if (sawChallenge && !sawMeaningfulText) {
             finish({
@@ -380,15 +383,28 @@ export class OpenClawClient {
   }
 
   private normalizeConfig(input: OpenClawConfig): OpenClawConfig {
-    const timeout = Number.isFinite(input.requestTimeoutMs) ? Math.round(input.requestTimeoutMs) : 20_000;
+    const timeout = Number.isFinite(input.requestTimeoutMs) ? Math.max(0, Math.round(input.requestTimeoutMs)) : 0;
     return {
       baseUrl: ensureTrailingSlashless((input.baseUrl || "").trim()),
       token: (input.token || "").trim(),
       transport: input.transport,
       wsPath: (input.wsPath || "").trim(),
-      requestTimeoutMs: timeout > 0 ? timeout : 20_000,
+      requestTimeoutMs: timeout,
       discoveryCandidates: (input.discoveryCandidates || "").trim()
     };
+  }
+
+  private resolveTimeoutMs(timeoutMs?: number): number | null {
+    if (!Number.isFinite(timeoutMs)) return null;
+    const normalized = Math.max(0, Math.round(Number(timeoutMs)));
+    return normalized > 0 ? normalized : null;
+  }
+
+  private withOptionalTimeout(init: RequestInit, timeoutMs?: number): RequestInit {
+    const normalizedTimeout = this.resolveTimeoutMs(timeoutMs);
+    return normalizedTimeout
+      ? { ...init, signal: AbortSignal.timeout(normalizedTimeout) }
+      : init;
   }
 
   private extractText(payload: any): string {

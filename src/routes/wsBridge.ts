@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { WebSocketServer, WebSocket } from "ws";
+import { WebSocketServer, WebSocket, type ClientOptions } from "ws";
 import type { ConnectionRegistry } from "../services/connectionRegistry.js";
 import { buildWsCandidates } from "../utils/openclaw.js";
 
@@ -58,10 +58,13 @@ export function registerWsBridge(app: FastifyInstance, registry: ConnectionRegis
       }
 
       const target = candidates[index];
-      const ws = new WebSocket(target, {
-        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-        handshakeTimeout: openclawConfig.requestTimeoutMs
-      });
+      const options: ClientOptions = {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined
+      };
+      if (openclawConfig.requestTimeoutMs > 0) {
+        options.handshakeTimeout = openclawConfig.requestTimeoutMs;
+      }
+      const ws = new WebSocket(target, options);
 
       ws.on("open", () => {
         connected = true;

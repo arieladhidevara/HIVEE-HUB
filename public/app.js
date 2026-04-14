@@ -17,7 +17,12 @@ const openclawEditButton = document.getElementById("openclawEditButton");
 // State
 // ---------------------------------------------------------------------------
 
+const LOG_MAX_ENTRIES = 80;
+const REFRESH_POLL_MS = 3000;
+
 let activeConnectionId = "default";
+let logSequence = 0;
+let latestRefreshRequest = 0;
 
 // Per-connection state keyed by connectionId
 const connState = {};
@@ -25,18 +30,17 @@ const connState = {};
 function getState(id) {
   if (!connState[id]) {
     connState[id] = {
-      latestConfig: { baseUrl: "", discoveryCandidates: "", token: "", requestTimeoutMs: 20000 },
+      latestConfig: { baseUrl: "", discoveryCandidates: "", token: "", requestTimeoutMs: 0 },
       dockerCandidates: [],
       selectedBaseUrl: "",
-      logEntries: [],
+      clientLogs: [],
+      serverLogs: [],
       hiveeConnected: false,
       openclawConnected: false
     };
   }
   return connState[id];
 }
-
-const LOG_MAX_ENTRIES = 80;
 
 // ---------------------------------------------------------------------------
 // Utilities
@@ -57,15 +61,65 @@ function setLog(target, payload) {
   target.textContent = typeof payload === "string" ? payload : safeJson(payload);
 }
 
+function formatLogTime(timestamp) {
+  return new Date(timestamp).toLocaleTimeString("en-GB", { hour12: false });
+}
+
+function buildLogEntry(key, timestamp, sequence, scope, payload) {
+  const header = `[${formatLogTime(timestamp)}] [${scope}]`;
+  const body = typeof payload === "string" ? payload : safeJson(payload);
+  return { key, timestamp, sequence, text: `${header}\n${body}` };
+}
+
+function eventScope(event) {
+  switch (event?.kind) {
+    case "cloud.command.received":
+    case "cloud.command.poll_error":
+      return "Cloud -> OpenClaw";
+    case "cloud.command.result":
+    case "cloud.command.result_error":
+    case "heartbeat.ok":
+    case "heartbeat.error":
+      return "OpenClaw -> Cloud";
+    default:
+      if (String(event?.kind || "").startsWith("pairing")) return "Hivee";
+      if (String(event?.kind || "").startsWith("command.")) return "OpenClaw";
+      if (String(event?.kind || "").startsWith("openclaw")) return "OpenClaw";
+      return "Hub";
+  }
+}
+
+function syncServerLogs(connectionId, recentEvents) {
+  const s = getState(connectionId);
+  const events = Array.isArray(recentEvents) ? recentEvents.slice().reverse() : [];
+  s.serverLogs = events.map((event, index) =>
+    buildLogEntry(
+      `server:${event.id}`,
+      Number.isFinite(event?.createdAt) ? Number(event.createdAt) : Date.now(),
+      Number.isFinite(event?.id) ? Number(event.id) : index,
+      eventScope(event),
+      event?.meta ? `${event.message}\n${safeJson(event.meta)}` : event.message
+    )
+  );
+}
+
+function renderActivityLog(connectionId = activeConnectionId) {
+  if (connectionId !== activeConnectionId) return;
+  const s = getState(connectionId);
+  const lines = [...s.serverLogs, ...s.clientLogs]
+    .sort((a, b) => (a.timestamp - b.timestamp) || (a.sequence - b.sequence))
+    .slice(-LOG_MAX_ENTRIES)
+    .map((entry) => entry.text);
+
+  setLog(activityLog, lines.length ? lines.join("\n\n") : "No activity yet.");
+  activityLog.scrollTop = activityLog.scrollHeight;
+}
+
 function appendLog(scope, payload) {
   const s = getState(activeConnectionId);
-  const stamp = new Date().toLocaleTimeString("en-GB", { hour12: false });
-  const header = `[${stamp}] [${scope}]`;
-  const body = typeof payload === "string" ? payload : safeJson(payload);
-  s.logEntries.push(`${header}\n${body}`);
-  if (s.logEntries.length > LOG_MAX_ENTRIES) s.logEntries = s.logEntries.slice(-LOG_MAX_ENTRIES);
-  setLog(activityLog, s.logEntries.join("\n\n"));
-  activityLog.scrollTop = activityLog.scrollHeight;
+  s.clientLogs.push(buildLogEntry(`client:${++logSequence}`, Date.now(), logSequence, scope, payload));
+  if (s.clientLogs.length > LOG_MAX_ENTRIES) s.clientLogs = s.clientLogs.slice(-LOG_MAX_ENTRIES);
+  renderActivityLog(activeConnectionId);
 }
 
 function summarizeCandidate(candidate) {
@@ -87,18 +141,46 @@ function apiBase(id) {
   return `/api/connections/${encodeURIComponent(id)}`;
 }
 
+async function parseJsonResponse(response) {
+  const text = await response.text();
+  if (!text) return {};
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { error: text };
+  }
+}
+
+function getResponseError(response, payload) {
+  if (payload && typeof payload === "object" && typeof payload.error === "string" && payload.error.trim()) {
+    return payload.error;
+  }
+  return `Request failed (${response.status})`;
+}
+
+async function getJson(url) {
+  const response = await fetch(url);
+  const payload = await parseJsonResponse(response);
+  if (!response.ok) throw new Error(getResponseError(response, payload));
+  return payload;
+}
+
 async function postJson(url, body) {
   const response = await fetch(url, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body || {})
   });
-  return await response.json();
+  const payload = await parseJsonResponse(response);
+  if (!response.ok) throw new Error(getResponseError(response, payload));
+  return payload;
 }
 
 async function deleteJson(url) {
   const response = await fetch(url, { method: "DELETE" });
-  return await response.json();
+  const payload = await parseJsonResponse(response);
+  if (!response.ok) throw new Error(getResponseError(response, payload));
+  return payload;
 }
 
 // ---------------------------------------------------------------------------
@@ -179,7 +261,7 @@ function syncWorkspaceFromStatus(status) {
     baseUrl: String(config.baseUrl || "").trim(),
     discoveryCandidates: String(config.discoveryCandidates || "").trim(),
     token: String(config.token || "").trim(),
-    requestTimeoutMs: Number.isFinite(config.requestTimeoutMs) ? Number(config.requestTimeoutMs) : 20000
+    requestTimeoutMs: Number.isFinite(config.requestTimeoutMs) ? Number(config.requestTimeoutMs) : 0
   };
 
   if (!pairingTokenInput.value && pairing.pairingToken) {
@@ -225,9 +307,8 @@ function syncWorkspaceFromStatus(status) {
     s.selectedBaseUrl = s.latestConfig.baseUrl;
   }
 
-  // Restore log for this connection
-  setLog(activityLog, s.logEntries.join("\n\n"));
-  activityLog.scrollTop = activityLog.scrollHeight;
+  syncServerLogs(id, status?.recentEvents || []);
+  renderActivityLog(id);
 }
 
 // ---------------------------------------------------------------------------
@@ -286,7 +367,13 @@ function renderConnectionsBar(connections) {
     });
 
     const deleteBtn = card.querySelector(".connection-delete-btn");
+    const nameNode = card.querySelector(".connection-name");
+    if (nameNode) {
+      nameNode.textContent = `${connectorLabel} - ${openclawLabel}`;
+    }
     if (deleteBtn) {
+      deleteBtn.textContent = "Delete";
+      deleteBtn.type = "button";
       deleteBtn.addEventListener("click", async (e) => {
         e.stopPropagation();
         await removeConnection(conn.id);
@@ -312,20 +399,29 @@ async function switchToConnection(id) {
   renderCandidateButtons();
 }
 
-async function refreshActiveConnection() {
+async function refreshActiveConnection(options = {}) {
+  const { silent = false } = options;
+  const requestId = ++latestRefreshRequest;
   try {
-    const response = await fetch(`${apiBase(activeConnectionId)}/status`);
-    const status = await response.json();
+    const status = await getJson(`${apiBase(activeConnectionId)}/status`);
+    if (requestId !== latestRefreshRequest) return;
     syncWorkspaceFromStatus(status);
     await refreshConnectionsList();
   } catch (error) {
-    appendLog("Hub", `Error refreshing status: ${error?.message || String(error)}`);
+    if (String(error?.message || error).includes("Connection not found") && activeConnectionId !== "default") {
+      activeConnectionId = "default";
+      await refreshActiveConnection({ silent });
+      return;
+    }
+    if (!silent) {
+      appendLog("Hub", `Error refreshing status: ${error?.message || String(error)}`);
+    }
   }
 }
 
 async function refreshConnectionsList() {
   try {
-    const data = await fetch("/api/connections").then((r) => r.json());
+    const data = await getJson("/api/connections");
     renderConnectionsBar(data.connections || []);
   } catch {}
 }
@@ -382,7 +478,7 @@ async function connectOpenClaw() {
     token: openclawTokenInput.value.trim(),
     transport: "http",
     wsPath: "",
-    requestTimeoutMs: s.latestConfig.requestTimeoutMs || 20000
+    requestTimeoutMs: Number.isFinite(s.latestConfig.requestTimeoutMs) ? Number(s.latestConfig.requestTimeoutMs) : 0
   };
 
   appendLog("OpenClaw", "Saving OpenClaw connection...");
@@ -436,7 +532,14 @@ async function clearActiveConnection() {
 async function removeConnection(id) {
   if (id === "default") return;
   try {
-    await deleteJson(`/api/connections/${encodeURIComponent(id)}`);
+    const confirmed = window.confirm(`Delete connection "${id}"? This removes its pairing, OpenClaw config, and saved activity.`);
+    if (!confirmed) return;
+
+    const result = await deleteJson(`/api/connections/${encodeURIComponent(id)}`);
+    if (!result?.ok) {
+      throw new Error(result?.error || `Could not delete connection ${id}`);
+    }
+
     delete connState[id];
     if (activeConnectionId === id) {
       await switchToConnection("default");
@@ -514,4 +617,7 @@ document.getElementById("newConnectionButton").addEventListener("click", async (
 // ---------------------------------------------------------------------------
 
 await refreshActiveConnection();
+setInterval(() => {
+  void refreshActiveConnection({ silent: true });
+}, REFRESH_POLL_MS);
 await scanDockerCandidates();

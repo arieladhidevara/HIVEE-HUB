@@ -30,8 +30,7 @@ export class CloudApi {
             agents: openclaw.agents,
             models: openclaw.models
           }
-        }),
-        signal: AbortSignal.timeout(15_000)
+        })
       });
     } catch (error) {
       throw new Error(`Cloud register request failed (${url}): ${describeFetchError(error)}`);
@@ -61,8 +60,7 @@ export class CloudApi {
           connectorName: this.env.CONNECTOR_NAME,
           version: "0.1.0",
           observedAt: Date.now()
-        }),
-        signal: AbortSignal.timeout(15_000)
+        })
       });
     } catch (error) {
       throw new Error(`Heartbeat request failed (${url}): ${describeFetchError(error)}`);
@@ -88,8 +86,7 @@ export class CloudApi {
         headers: {
           Accept: "application/json",
           Authorization: `Bearer ${state.connectorSecret}`
-        },
-        signal: AbortSignal.timeout(15_000)
+        }
       });
     } catch (error) {
       throw new Error(`Command poll request failed (${url}): ${describeFetchError(error)}`);
@@ -120,8 +117,7 @@ export class CloudApi {
           "content-type": "application/json",
           Authorization: `Bearer ${state.connectorSecret}`
         },
-        body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(15_000)
+        body: JSON.stringify(payload)
       });
     } catch (error) {
       throw new Error(`Post command result request failed (${url}): ${describeFetchError(error)}`);
