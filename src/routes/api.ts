@@ -169,10 +169,6 @@ export async function registerApiRoutes(app: FastifyInstance, registry: Connecti
 
   app.delete("/api/connections/:id", async (request, reply) => {
     const { id } = request.params as { id: string };
-    if (id === "default") {
-      reply.code(400);
-      return { ok: false, error: "Cannot delete the default connection" };
-    }
     if (!registry.get(id)) {
       reply.code(404);
       return { ok: false, error: "Connection not found" };
@@ -192,12 +188,12 @@ export async function registerApiRoutes(app: FastifyInstance, registry: Connecti
   );
 
   // ---------------------------------------------------------------------------
-  // Legacy (backward-compat) routes — all proxy to 'default' connection
+  // Legacy (backward-compat) routes — proxy to the first available connection
   // ---------------------------------------------------------------------------
 
   await registerConnectionRoutes(
     app,
     "/api",
-    () => registry.getDefault()
+    () => registry.getPrimary()
   );
 }

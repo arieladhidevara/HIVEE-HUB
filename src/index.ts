@@ -1,28 +1,38 @@
 import "dotenv/config";
 import { loadEnv } from "./config/env.js";
-import { applyRuntimeEnvOverrides } from "./store/runtimeEnv.js";
 import { openDb } from "./store/db.js";
 import { buildServer } from "./server.js";
 import { ConnectionRegistry } from "./services/connectionRegistry.js";
 import os from "node:os";
 
-const env = applyRuntimeEnvOverrides(loadEnv());
+const env = loadEnv();
 const db = openDb(env);
 
 const registry = new ConnectionRegistry(db, env);
 await registry.initialize();
 
-const defaultManager = registry.getDefault();
+let bootstrapManager = registry.getPrimary();
 
-await defaultManager.discoverOpenClawWithDockerFallback();
+const hasBootstrapSeed = Boolean(
+  env.OPENCLAW_BASE_URL || (env.PAIRING_TOKEN && env.CLOUD_BASE_URL)
+);
 
-// Auto-pair on startup if env vars provided (default connection only)
-if (env.PAIRING_TOKEN && env.CLOUD_BASE_URL) {
-  const status = defaultManager.status();
+if (!bootstrapManager && hasBootstrapSeed) {
+  const id = await registry.create("Connection 1");
+  bootstrapManager = registry.get(id);
+}
+
+if (bootstrapManager) {
+  await bootstrapManager.discoverOpenClawWithDockerFallback();
+}
+
+// Auto-pair on startup only when a real connection already exists or was created from env.
+if (bootstrapManager && env.PAIRING_TOKEN && env.CLOUD_BASE_URL) {
+  const status = bootstrapManager.status();
   if (status.pairing.status !== "paired") {
     console.log(`Auto-pairing with ${env.CLOUD_BASE_URL} ...`);
     try {
-      const result = await defaultManager.pair(env.CLOUD_BASE_URL, env.PAIRING_TOKEN);
+      const result = await bootstrapManager.pair(env.CLOUD_BASE_URL, env.PAIRING_TOKEN);
       console.log(`Auto-pair ${result.status === "paired" ? "SUCCESS" : "FAILED"}: ${result.status}`);
       if (result.lastError) console.log(`Auto-pair error: ${result.lastError}`);
     } catch (e: any) {

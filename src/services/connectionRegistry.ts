@@ -5,7 +5,14 @@ import { CloudApi } from "./cloudApi.js";
 import { OpenClawClient } from "./openclawClient.js";
 import { ConnectorManager } from "./connectorManager.js";
 import { RuntimeLoops } from "./runtime.js";
-import { createConnection, deleteConnectionData, listConnections } from "../store/repository.js";
+import {
+  connectionHasData,
+  createConnection,
+  deleteConnectionData,
+  getConnection,
+  listConnections,
+  renameConnectionData
+} from "../store/repository.js";
 import type { ConnectionWithStatus } from "../types/domain.js";
 
 interface RegistryEntry {
@@ -22,13 +29,8 @@ export class ConnectionRegistry {
   ) {}
 
   async initialize(): Promise<void> {
+    this.normalizeLegacyDefaultConnection();
     const connections = listConnections(this.db);
-
-    // Ensure 'default' exists in DB
-    if (!connections.find((c) => c.id === "default")) {
-      createConnection(this.db, "default", "Default");
-      connections.unshift({ id: "default", name: "Default", createdAt: Date.now() });
-    }
 
     for (const conn of connections) {
       await this.startEntry(conn.id);
@@ -52,14 +54,13 @@ export class ConnectionRegistry {
   }
 
   async create(name: string): Promise<string> {
-    const id = `conn_${randomBytes(4).toString("hex")}`;
+    const id = this.generateConnectionId();
     createConnection(this.db, id, name);
     await this.startEntry(id);
     return id;
   }
 
   async delete(connectionId: string): Promise<void> {
-    if (connectionId === "default") return; // never delete the default
     const entry = this.entries.get(connectionId);
     if (entry) {
       entry.loops.stop();
@@ -72,10 +73,10 @@ export class ConnectionRegistry {
     return this.entries.get(connectionId)?.manager ?? null;
   }
 
-  getDefault(): ConnectorManager {
-    const entry = this.entries.get("default");
-    if (!entry) throw new Error("Default connection not initialised");
-    return entry.manager;
+  getPrimary(): ConnectorManager | null {
+    const first = listConnections(this.db)[0];
+    if (!first) return null;
+    return this.entries.get(first.id)?.manager ?? null;
   }
 
   list(): ConnectionWithStatus[] {
@@ -122,5 +123,47 @@ export class ConnectionRegistry {
     for (const { loops } of this.entries.values()) {
       loops.stop();
     }
+  }
+
+  private normalizeLegacyDefaultConnection(): void {
+    const legacy = getConnection(this.db, "default");
+    if (!legacy) return;
+
+    if (!connectionHasData(this.db, legacy.id)) {
+      deleteConnectionData(this.db, legacy.id);
+      return;
+    }
+
+    const nextId = this.generateConnectionId();
+    const nextName = this.normalizeConnectionName(legacy.name, legacy.id);
+    renameConnectionData(this.db, legacy.id, nextId, nextName);
+  }
+
+  private generateConnectionId(): string {
+    let id = `conn_${randomBytes(4).toString("hex")}`;
+    while (getConnection(this.db, id)) {
+      id = `conn_${randomBytes(4).toString("hex")}`;
+    }
+    return id;
+  }
+
+  private normalizeConnectionName(currentName: string, currentId?: string): string {
+    const trimmed = String(currentName || "").trim();
+    if (trimmed && trimmed.toLowerCase() !== "default") {
+      return trimmed;
+    }
+
+    const used = new Set(
+      listConnections(this.db)
+        .filter((conn) => conn.id !== currentId)
+        .map((conn) => String(conn.name || "").trim())
+        .filter(Boolean)
+    );
+
+    let index = 1;
+    while (used.has(`Connection ${index}`)) {
+      index += 1;
+    }
+    return `Connection ${index}`;
   }
 }

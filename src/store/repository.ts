@@ -204,6 +204,43 @@ export function createConnection(db: DB, id: string, name: string): Connection {
   return { id, name, createdAt: now };
 }
 
+export function connectionHasData(db: DB, id: string): boolean {
+  const kvRow = db
+    .prepare(`SELECT 1 AS ok FROM kv_store WHERE key LIKE ? LIMIT 1`)
+    .get(`${id}:%`) as { ok: number } | undefined;
+  if (kvRow) return true;
+
+  const eventRow = db
+    .prepare(`SELECT 1 AS ok FROM connector_events WHERE connection_id = ? LIMIT 1`)
+    .get(id) as { ok: number } | undefined;
+  if (eventRow) return true;
+
+  const historyRow = db
+    .prepare(`SELECT 1 AS ok FROM command_history WHERE connection_id = ? LIMIT 1`)
+    .get(id) as { ok: number } | undefined;
+  return Boolean(historyRow);
+}
+
+export function renameConnectionData(db: DB, fromId: string, toId: string, nextName: string): void {
+  if (fromId === toId) {
+    db.prepare(`UPDATE connections SET name = ? WHERE id = ?`).run(nextName, fromId);
+    return;
+  }
+
+  const tx = db.transaction(() => {
+    db.prepare(`UPDATE connections SET id = ?, name = ? WHERE id = ?`).run(toId, nextName, fromId);
+    db.prepare(
+      `UPDATE kv_store
+       SET key = ? || substr(key, length(?) + 1)
+       WHERE key LIKE ?`
+    ).run(toId, fromId, `${fromId}:%`);
+    db.prepare(`UPDATE connector_events SET connection_id = ? WHERE connection_id = ?`).run(toId, fromId);
+    db.prepare(`UPDATE command_history SET connection_id = ? WHERE connection_id = ?`).run(toId, fromId);
+  });
+
+  tx();
+}
+
 export function deleteConnectionData(db: DB, id: string): void {
   db.prepare(`DELETE FROM connections WHERE id = ?`).run(id);
   deleteByPrefix(db, id);

@@ -7,7 +7,7 @@ import { buildWsCandidates } from "../utils/openclaw.js";
  * Minimal local admin WS bridge.
  *
  * Connects to a specific connection's OpenClaw instance.
- * Query param: ?connection=<connectionId> (defaults to 'default')
+ * Query param: ?connection=<connectionId> (defaults to the first available connection)
  */
 export function registerWsBridge(app: FastifyInstance, registry: ConnectionRegistry): void {
   const wss = new WebSocketServer({ noServer: true });
@@ -22,9 +22,9 @@ export function registerWsBridge(app: FastifyInstance, registry: ConnectionRegis
   wss.on("connection", (client, request) => {
     // Parse connectionId from query string
     const url = new URL(request.url ?? "/", "http://localhost");
-    const connectionId = url.searchParams.get("connection") || "default";
-
-    const manager = registry.get(connectionId);
+    const requestedConnectionId = url.searchParams.get("connection");
+    const manager = requestedConnectionId ? registry.get(requestedConnectionId) : registry.getPrimary();
+    const connectionId = requestedConnectionId || manager?.getConnectionId() || "";
     if (!manager) {
       client.send(JSON.stringify({ type: "error", error: `Connection '${connectionId}' not found` }));
       client.close();

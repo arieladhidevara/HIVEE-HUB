@@ -26,7 +26,6 @@ import { CloudApi } from "./cloudApi.js";
 import { OpenClawClient } from "./openclawClient.js";
 import { tryDockerDiscovery, tryJoinOpenClawNetworks } from "./dockerDiscovery.js";
 import { ensureTrailingSlashless, errorToText, redactToken } from "../utils/text.js";
-import { persistRuntimeEnvValues } from "../store/runtimeEnv.js";
 import os from "node:os";
 
 interface DockerDiscoverOptions {
@@ -105,12 +104,6 @@ export class ConnectorManager {
     this.openclaw.setConfig(next);
     const saved = this.openclaw.getConfig();
     saveOpenClawConfig(this.db, this.connectionId, saved);
-    if (this.connectionId === "default") {
-      persistRuntimeEnvValues(this.env.DATA_DIR, {
-        OPENCLAW_BASE_URL: saved.baseUrl,
-        OPENCLAW_TOKEN: saved.token
-      });
-    }
     appendEvent(this.db, this.connectionId, "info", "openclaw.config.updated", "OpenClaw config updated from admin UI", {
       baseUrl: saved.baseUrl,
       transport: saved.transport,
@@ -127,12 +120,6 @@ export class ConnectorManager {
     this.openclaw.setConfig(defaults);
     const saved = this.openclaw.getConfig();
     saveOpenClawConfig(this.db, this.connectionId, saved);
-    if (this.connectionId === "default") {
-      persistRuntimeEnvValues(this.env.DATA_DIR, {
-        OPENCLAW_BASE_URL: saved.baseUrl,
-        OPENCLAW_TOKEN: saved.token
-      });
-    }
     appendEvent(this.db, this.connectionId, "info", "openclaw.config.reset", "OpenClaw config reset to env defaults", {
       baseUrl: saved.baseUrl,
       transport: saved.transport,
@@ -265,9 +252,6 @@ export class ConnectorManager {
       connectorId: null,
       connectorSecret: null
     });
-    if (this.connectionId === "default") {
-      persistRuntimeEnvValues(this.env.DATA_DIR, { PAIRING_TOKEN: normalizedPairingToken });
-    }
 
     try {
       const result = await this.cloudApi.register(normalizedPairingToken, normalizedCloudBaseUrl, snapshot);
@@ -311,9 +295,6 @@ export class ConnectorManager {
       updatedAt: Date.now()
     };
     savePairingState(this.db, this.connectionId, state);
-    if (this.connectionId === "default") {
-      persistRuntimeEnvValues(this.env.DATA_DIR, { PAIRING_TOKEN: "" });
-    }
     saveCursor(this.db, this.connectionId, null);
     appendEvent(this.db, this.connectionId, "info", "pairing.clear", "Pairing cleared");
     return state;
