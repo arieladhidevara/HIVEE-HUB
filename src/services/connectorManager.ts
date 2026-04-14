@@ -37,6 +37,11 @@ const DOCKER_DISCOVERY_COOLDOWN_MS = 5 * 60 * 1000;
 
 export class ConnectorManager {
   private lastDockerDiscovery: number = 0;
+  private lastOpenClawHealthy: boolean | null = null;
+  private lastOpenClawBaseUrl: string | null = null;
+  private lastOpenClawError: string | null = null;
+  private lastHeartbeatError: string | null = null;
+  private lastPollError: string | null = null;
 
   constructor(
     private readonly connectionId: string,
@@ -47,12 +52,16 @@ export class ConnectorManager {
   ) {
     const defaults = this.defaultOpenClawConfig();
     const restored = loadOpenClawConfig(this.db, this.connectionId, defaults);
+    const restoredSnapshot = loadOpenClawSnapshot(this.db, this.connectionId);
     this.openclaw.setConfig({
       ...restored,
       // This repo now defaults to no request timeout for cloud/OpenClaw message flow.
       requestTimeoutMs: 0
     });
     saveOpenClawConfig(this.db, this.connectionId, this.openclaw.getConfig());
+    this.lastOpenClawHealthy = restoredSnapshot.healthy;
+    this.lastOpenClawBaseUrl = restoredSnapshot.baseUrl;
+    this.lastOpenClawError = restoredSnapshot.lastError;
   }
 
   status(): ConnectorStatusPayload {
@@ -134,19 +143,30 @@ export class ConnectorManager {
   async discoverOpenClaw(): Promise<OpenClawSnapshot> {
     const snapshot = await this.openclaw.discover();
     saveOpenClawSnapshot(this.db, this.connectionId, snapshot);
-    appendEvent(
-      this.db,
-      this.connectionId,
-      snapshot.healthy ? "info" : "warn",
-      "openclaw.discover",
-      snapshot.healthy ? `OpenClaw healthy at ${snapshot.baseUrl}` : "OpenClaw discovery failed",
-      {
-        baseUrl: snapshot.baseUrl,
-        agents: snapshot.agents.map((a) => a.id),
-        models: snapshot.models,
-        error: snapshot.lastError
-      }
-    );
+    const healthChanged =
+      snapshot.healthy !== this.lastOpenClawHealthy ||
+      snapshot.baseUrl !== this.lastOpenClawBaseUrl ||
+      (!snapshot.healthy && snapshot.lastError !== this.lastOpenClawError);
+
+    if (!snapshot.healthy || healthChanged) {
+      appendEvent(
+        this.db,
+        this.connectionId,
+        snapshot.healthy ? "info" : "warn",
+        snapshot.healthy ? "openclaw.healthy" : "openclaw.unhealthy",
+        snapshot.healthy ? `OpenClaw healthy at ${snapshot.baseUrl}` : "OpenClaw is unhealthy",
+        {
+          baseUrl: snapshot.baseUrl,
+          agents: snapshot.agents.map((a) => a.id),
+          models: snapshot.models,
+          error: snapshot.lastError
+        }
+      );
+    }
+
+    this.lastOpenClawHealthy = snapshot.healthy;
+    this.lastOpenClawBaseUrl = snapshot.baseUrl;
+    this.lastOpenClawError = snapshot.lastError;
     return snapshot;
   }
 
@@ -306,16 +326,17 @@ export class ConnectorManager {
     if (state.status !== "paired") return;
     try {
       await this.cloudApi.heartbeat(state, openclaw);
-      appendEvent(this.db, this.connectionId, "info", "heartbeat.ok", "Heartbeat sent", {
-        connectorId: state.connectorId,
-        cloudBaseUrl: state.cloudBaseUrl
-      });
+      this.lastHeartbeatError = null;
     } catch (error) {
-      appendEvent(this.db, this.connectionId, "error", "heartbeat.error", "OpenClaw -> cloud heartbeat failed", {
-        connectorId: state.connectorId,
-        cloudBaseUrl: state.cloudBaseUrl,
-        error: errorToText(error)
-      });
+      const errorText = errorToText(error);
+      if (this.lastHeartbeatError !== errorText) {
+        appendEvent(this.db, this.connectionId, "error", "heartbeat.error", "OpenClaw -> cloud heartbeat failed", {
+          connectorId: state.connectorId,
+          cloudBaseUrl: state.cloudBaseUrl,
+          error: errorText
+        });
+      }
+      this.lastHeartbeatError = errorText;
       throw error;
     }
   }
@@ -328,12 +349,17 @@ export class ConnectorManager {
     let response: { cursor: string | null; commands: CloudCommand[] };
     try {
       response = await this.cloudApi.pollCommands(state, cursor);
+      this.lastPollError = null;
     } catch (error) {
-      appendEvent(this.db, this.connectionId, "error", "cloud.command.poll_error", "Cloud -> OpenClaw poll failed", {
-        connectorId: state.connectorId,
-        cloudBaseUrl: state.cloudBaseUrl,
-        error: errorToText(error)
-      });
+      const errorText = errorToText(error);
+      if (this.lastPollError !== errorText) {
+        appendEvent(this.db, this.connectionId, "error", "cloud.command.poll_error", "Cloud -> OpenClaw poll failed", {
+          connectorId: state.connectorId,
+          cloudBaseUrl: state.cloudBaseUrl,
+          error: errorText
+        });
+      }
+      this.lastPollError = errorText;
       throw error;
     }
     if (response.cursor !== cursor) {
@@ -410,7 +436,6 @@ export class ConnectorManager {
       });
 
       await this.postCommandResultWithEvent(state, command, result);
-      appendEvent(this.db, this.connectionId, "info", "command.done", `Executed ${command.type}`, { commandId: command.id });
       return result;
     } catch (error) {
       const result: CommandResult = {
@@ -430,10 +455,6 @@ export class ConnectorManager {
         errorText: result.error
       });
       await this.postCommandResultWithEvent(state, command, result);
-      appendEvent(this.db, this.connectionId, "error", "command.error", `Failed ${command.type}`, {
-        commandId: command.id,
-        error: result.error
-      });
       return result;
     }
   }
@@ -473,7 +494,8 @@ export class ConnectorManager {
           commandId: command.id,
           ok: result.ok,
           durationMs: Math.max(0, result.finishedAt - result.startedAt),
-          error: result.error || null
+          error: result.error || null,
+          ...this.summarizeCommand(command)
         }
       );
     } catch (error) {

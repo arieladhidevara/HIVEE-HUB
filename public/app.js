@@ -88,7 +88,6 @@ function eventScope(event) {
       return "Cloud -> OpenClaw";
     case "cloud.command.result":
     case "cloud.command.result_error":
-    case "heartbeat.ok":
     case "heartbeat.error":
       return "OpenClaw -> Cloud";
     default:
@@ -99,9 +98,26 @@ function eventScope(event) {
   }
 }
 
+function shouldDisplayServerEvent(event) {
+  const kind = String(event?.kind || "");
+  return [
+    "cloud.command.received",
+    "cloud.command.result",
+    "cloud.command.result_error",
+    "cloud.command.poll_error",
+    "heartbeat.error",
+    "openclaw.unhealthy",
+    "pairing.success",
+    "pairing.error",
+    "pairing.clear"
+  ].includes(kind);
+}
+
 function syncServerLogs(connectionId, recentEvents) {
   const s = getState(connectionId);
-  const events = Array.isArray(recentEvents) ? recentEvents.slice().reverse() : [];
+  const events = Array.isArray(recentEvents)
+    ? recentEvents.filter((event) => shouldDisplayServerEvent(event)).slice().reverse()
+    : [];
   s.serverLogs = events.map((event, index) =>
     buildLogEntry(
       `server:${event.id}`,
